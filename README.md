@@ -29,7 +29,7 @@ sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/kalic-xing/elk-inst
 1. Clone the repository:
 
 ```
-git clone git@github.com:kalic-xing/elk-installer.git
+git clone https://github.com/kalic-xing/elk-installer.git
 cd elk-installer/
 ```
 
