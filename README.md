@@ -15,7 +15,7 @@ A guide for setting up Elasticsearch, Kibana and Fleet. You can choose between t
 ## Using Bash Script
 
 ```sh
-sudo bash -c "$(curl -fsSL <elk.sh>"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/kalic-xing/elk-installer/main/elk.sh"
 ```
 
 ### Usage
@@ -29,7 +29,7 @@ sudo bash -c "$(curl -fsSL <elk.sh>"
 1. Clone the repository:
 
 ```
-git clone git@gitlab.com:KalicXhing/elk-installer.git
+git clone git@github.com:kalic-xing/elk-installer.git
 cd elk-installer/
 ```
 
