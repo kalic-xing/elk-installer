@@ -4,11 +4,6 @@
 FILE="docker-compose.yml"
 TOKEN_FILE="tokens/token.txt"
 
-while [ ! -f /tokens/token.txt ]; do
-  echo "Waiting for token to be generated..."
-  sleep 5
-done
-
 # Run the sed command
 sed -i.bak "s|FLEET_SERVER_SERVICE_TOKEN=.*|FLEET_SERVER_SERVICE_TOKEN=$(cat $TOKEN_FILE)|" $FILE
 
