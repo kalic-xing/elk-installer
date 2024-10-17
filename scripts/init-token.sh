@@ -48,4 +48,4 @@ curl -sX PUT -u elastic:${ELASTIC_PASSWORD} "http://kibana:5601/api/fleet/output
   "is_default": true
 }'
 
-printf '\nSuccessfully configured Kibana'
+printf '\nSuccessfully configured Kibana and generated token'

@@ -6,7 +6,7 @@ services:
     environment:
       - discovery.type=single-node
       - bootstrap.memory_lock=true
-      - ES_JAVA_OPTS=-Xms4g -Xmx4g # assumes you have 8GB RAM or more  
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g # assumes you have 2GB RAM or more  
       - xpack.security.enabled=true
       - xpack.security.http.ssl.enabled=false
       - xpack.security.transport.ssl.enabled=false
