@@ -15,4 +15,4 @@ curl -su elastic:$ELASTIC_PASSWORD -X POST 'http://elasticsearch:9200/_security/
     "password": "'"$KIBANA_PASSWORD"'"
   }'
 
-printf '\nSuccessfully configured Elasticsearch'
+printf '\nSuccessfully configured Elasticsearch\n'
