@@ -1,10 +1,11 @@
 
 services:
   elasticsearch:
-    image: elasticsearch:${STACK_VERSION}
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
     container_name: elasticsearch
+    mem_limit: ${MEM_LIMIT}
     environment:
-      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - ES_JAVA_OPTS=-Xms256m -Xmx256m
       - discovery.type=single-node
       - bootstrap.memory_lock=true
       - xpack.security.enabled=true
@@ -14,22 +15,17 @@ services:
     ports:
       - 9200:9200
       - 9300:9300
-
-  elasticsearch-init:
-    image: alpine:latest
-    container_name: elasticsearch-init
-    environment:
-       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
-       - KIBANA_PASSWORD=${KIBANA_PASSWORD}
-    volumes:
-      - ./scripts/init-elasticsearch.sh:/init-elasticsearch.sh
-    entrypoint: ["/bin/sh", "/init-elasticsearch.sh"]
-    depends_on:
-      - elasticsearch
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sX GET -u elastic:${ELASTIC_PASSWORD} 'http://localhost:9200' | grep 'You Know, for Search' || exit 1"]
+      interval: 10s
+      retries: 5
+      start_period: 30s
+      timeout: 5s
 
   kibana:
-    image: kibana:${STACK_VERSION}
+    image: docker.elastic.co/kibana/kibana:${STACK_VERSION}
     container_name: kibana
+    mem_limit: ${MEM_LIMIT}
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
       - ELASTICSEARCH_USERNAME=kibana_system
@@ -38,28 +34,44 @@ services:
     ports:
       - ${KIBANA_PORT}:5601
     depends_on:
-      - elasticsearch
-      - elasticsearch-init
+      elasticsearch:
+        condition: service_healthy
     volumes:
       - ./config/kibana.yml:/usr/share/kibana/config/kibana.yml
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:5601/api/status | grep 'available' || exit 1"]
+      interval: 10s
+      retries: 5
+      start_period: 30s
+      timeout: 5s
 
-  token-init:
+  setup:
     image: alpine:latest
-    container_name: token-init
+    container_name: setup
     environment:
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - KIBANA_PASSWORD=${KIBANA_PASSWORD}
     volumes:
+      - ./scripts/init-elasticsearch.sh:/init-elasticsearch.sh
       - ./scripts/init-token.sh:/init-token.sh
       - ./tokens:/tokens
-    entrypoint: ["/bin/sh", "/init-token.sh"]
+    entrypoint: ["/bin/sh", "-c", "/init-elasticsearch.sh && /init-token.sh"]
     depends_on:
-      - kibana
+      kibana:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tokens/token.txt"]
+      interval: 10s
+      retries: 5
+      start_period: 60s
+      timeout: 5s
 
   elastic-agent:
     image: docker.elastic.co/beats/elastic-agent:${STACK_VERSION}
     container_name: fleet
     restart: always
     user: root
+    mem_limit: ${MEM_LIMIT}
     environment:
       - FLEET_SERVER_ENABLE=true
       - FLEET_SERVER_ELASTICSEARCH_HOST=http://elasticsearch:9200
@@ -68,9 +80,5 @@ services:
     ports:
       - "8220:8220"
     depends_on:
-      - elasticsearch
-      - kibana
-
-volumes:
-  tokens:
-    driver: local
+      setup:
+        condition: service_healthy
