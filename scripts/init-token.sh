@@ -31,6 +31,28 @@ curl -sX POST -u elastic:${ELASTIC_PASSWORD} 'http://kibana:5601/api/fleet/agent
   "has_fleet_server": true
 }'
 
+# Create Windows Server policy
+curl -sX POST -u elastic:${ELASTIC_PASSWORD} 'http://kibana:5601/api/fleet/agent_policies' \
+-H 'Content-Type: application/json' \
+-H 'kbn-xsrf: true' \
+-d '{
+  "name": "Windows Policy",
+  "namespace": "default",
+  "monitoring_enabled": ["logs"],
+  "description": "Policy for Windows Machines"
+}'
+
+# Create Linux Server policy
+curl -sX POST -u elastic:${ELASTIC_PASSWORD} 'http://kibana:5601/api/fleet/agent_policies' \
+-H 'Content-Type: application/json' \
+-H 'kbn-xsrf: true' \
+-d '{
+  "name": "Linux Policy",
+  "namespace": "default",
+  "monitoring_enabled": ["logs"],
+  "description": "Policy for Linux Machines"
+}'
+
 # Generate service token and extract the value
 curl -sX POST -u elastic:${ELASTIC_PASSWORD} 'http://kibana:5601/api/fleet/service-tokens' \
 -H 'Content-Type: application/json' \
