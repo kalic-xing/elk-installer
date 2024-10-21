@@ -72,7 +72,7 @@ done
 service_token=$(curl -sX POST -u "elastic:${ELASTIC_PASSWORD}" "$KIBANA_URL/api/fleet/service-tokens" -H 'Content-Type: application/json' -H 'kbn-xsrf: true' | jq -r '.value')
 
 # Add the service token on a new line with the correct format
-echo "fleet-service_token:$service_token" >> "$TOKEN_FILE"
+echo "fleet-service-token:$service_token" >> "$TOKEN_FILE"
 
 # Update the outputs configuration
 curl -sX PUT -u "elastic:${ELASTIC_PASSWORD}" "$KIBANA_URL/api/fleet/outputs/fleet-default-output" \
