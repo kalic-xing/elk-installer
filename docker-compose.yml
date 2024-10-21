@@ -52,15 +52,14 @@ services:
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
       - KIBANA_PASSWORD=${KIBANA_PASSWORD}
     volumes:
-      - ./scripts/init-elasticsearch.sh:/init-elasticsearch.sh
-      - ./scripts/init-token.sh:/init-token.sh
+      - ./scripts/init-setup.sh:/init-setup.sh
       - ./tokens:/tokens
-    entrypoint: ["/bin/sh", "-c", "/init-elasticsearch.sh && /init-token.sh"]
+    entrypoint: ["/bin/sh", "-c", "/init-setup.sh"]
     depends_on:
       kibana:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "test", "-f", "/tokens/token.txt"]
+      test: ["CMD", "test", "-f", "/tokens/enrollment_tokens.txt"]
       interval: 10s
       retries: 5
       start_period: 60s
@@ -80,5 +79,5 @@ services:
     ports:
       - "8220:8220"
     depends_on:
-      setup:
+      kibana:
         condition: service_healthy
