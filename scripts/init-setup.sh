@@ -29,26 +29,28 @@ until curl -s "$KIBANA_URL/api/status" | grep -q '"level":"available"'; do
   sleep 2
 done
 
-# Function to check if policy exists
-policy_exists() {
-  local policy_name=$1
-  curl -s -u "elastic:${ELASTIC_PASSWORD}" "$KIBANA_URL/api/fleet/agent_policies" -H 'Content-Type: application/json' | jq -e --arg name "$policy_name" '.items[] | select(.name == $name)' >/dev/null
+# Fetch all existing policies once
+existing_policies=$(curl -s -u "elastic:${ELASTIC_PASSWORD}" "$KIBANA_URL/api/fleet/agent_policies" -H 'Content-Type: application/json' | jq -r '.items[].name')
+
+# Function to check if a policy exists in the fetched list
+policy_exists_in_list() {
+  echo "$existing_policies" | grep -q "^$1$"
 }
 
 # Create Fleet Server, Windows, and Linux policies only if they don't already exist
-if ! policy_exists "fleet-server-default"; then
+if ! policy_exists_in_list "fleet-server-default"; then
   curl -sX POST -u "elastic:${ELASTIC_PASSWORD}" "$KIBANA_URL/api/fleet/agent_policies" \
   -d '{"name": "fleet-server-default", "namespace": "default", "monitoring_enabled": ["metrics"], "description": "Policy for Fleet Server", "has_fleet_server": true}' \
   -H 'Content-Type: application/json' -H 'kbn-xsrf: true'
 fi
 
-if ! policy_exists "Windows Policy"; then
+if ! policy_exists_in_list "Windows Policy"; then
   curl -sX POST -u "elastic:${ELASTIC_PASSWORD}" "$KIBANA_URL/api/fleet/agent_policies" \
   -d '{"name": "Windows Policy", "namespace": "default", "monitoring_enabled": ["logs"], "description": "Policy for Windows Machines"}' \
   -H 'Content-Type: application/json' -H 'kbn-xsrf: true'
 fi
 
-if ! policy_exists "Linux Policy"; then
+if ! policy_exists_in_list "Linux Policy"; then
   curl -sX POST -u "elastic:${ELASTIC_PASSWORD}" "$KIBANA_URL/api/fleet/agent_policies" \
   -d '{"name": "Linux Policy", "namespace": "default", "monitoring_enabled": ["logs"], "description": "Policy for Linux Machines"}' \
   -H 'Content-Type: application/json' -H 'kbn-xsrf: true'
