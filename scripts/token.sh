@@ -5,7 +5,7 @@ FILE="docker-compose.yml"
 TOKEN_FILE="tokens/enrollment_tokens.txt"
 
 # Run the sed command
-sed -i.bak "s|FLEET_SERVER_SERVICE_TOKEN=.*|FLEET_SERVER_SERVICE_TOKEN=$(grep "fleet-service_token" "$TOKEN_FILE" | cut -d ':' -f2)|" $FILE
+sed -i.bak "s|FLEET_SERVER_SERVICE_TOKEN=.*|FLEET_SERVER_SERVICE_TOKEN=$(grep "fleet-service-token" "$TOKEN_FILE" | cut -d ':' -f2)|" $FILE
 
 # Check if the sed command was successful
 if [ $? -eq 0 ]; then  

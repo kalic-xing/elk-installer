@@ -105,7 +105,7 @@ done
 echo_step "Pulling the Docker images..."
 docker compose pull 2>> $error_log
 
-echo_step "Starting Docker services for Elasticsearch, Kibana, and token initialization..."
+echo_step "Starting Docker services for Elasticsearch, Kibana, and setup initialization..."
 docker compose up -d elasticsearch kibana setup 2>> $error_log
 
 echo_step "Waiting for setup to complete..."

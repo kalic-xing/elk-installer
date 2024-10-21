@@ -7,7 +7,7 @@ password=""
 operating_system=""
 
 # Define the file where tokens are stored
-token_file="/opt/elk-installer/tokens/enrollment_token.txt" 
+token_file="/opt/elk-installer/tokens/enrollment_tokens.txt" 
 
 # Define the path to the Elastic Agent zip file and commands file
 elastic_zip="/opt/elk-installer/elastic-agent-8.14.3-windows-x86_64.zip"
