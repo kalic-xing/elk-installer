@@ -29,6 +29,16 @@ until curl -s "$KIBANA_URL/api/status" | grep -q '"level":"available"'; do
   sleep 2
 done
 
+# Register Fleet Server hosts
+curl -sX POST -u elastic:${ELASTIC_PASSWORD} 'http://kibana:5601/api/fleet/fleet_server_hosts' \
+-H 'Content-Type: application/json' \
+-H 'kbn-xsrf: true' \
+-d '{
+  "name": "fleet01",
+  "host_urls": ["https://fleet01:8220"],
+  "is_default": true
+}'
+
 # Fetch all existing policies once
 existing_policies=$(curl -s -u "elastic:${ELASTIC_PASSWORD}" "$KIBANA_URL/api/fleet/agent_policies" -H 'Content-Type: application/json' | jq -r '.items[].name')
 
