@@ -138,7 +138,7 @@ check_and_add_aliases() {
     local aliases=(
     "alias elk-start='docker compose -f $compose_file_path start elasticsearch kibana elastic-agent'"
     "alias elk-stop='docker compose -f $compose_file_path stop'"
-    "alias elk-reset='(cd /opt/elk-installer && docker compose down -v && docker compose up -d elasticsearch kibana setup && echo Waiting for setup to complete... && while [ \"\$(docker inspect -f '\''{{.State.Status}}'\'' setup)\" != "exited" ]; do sleep 1; done && sudo ./scripts/token.sh && docker compose up -d elastic-agent)'"
+    "alias elk-reset='(cd /opt/elk-installer && docker compose down -v && docker compose up -d elasticsearch kibana setup && echo [ INFO ] Waiting for setup to complete... && while [ \"\$(docker inspect -f '\''{{.State.Status}}'\'' setup)\" != "exited" ]; do sleep 1; done && sudo ./scripts/token.sh && docker compose up -d elastic-agent)'"
     )
 
     if [ ! -f "$alias_file" ]; then

@@ -90,7 +90,7 @@ echo "fleet-service-token:$service_token" >> "$TOKEN_FILE"
 
 # Update the outputs configuration
 curl -sX PUT -u "elastic:${ELASTIC_PASSWORD}" "$KIBANA_URL/api/fleet/outputs/fleet-default-output" \
-  -d '{"name": "default", "type": "elasticsearch", "hosts": ["http://elasticsearch:9200"], "is_default": true}' \
+  -d '{"name": "default", "type": "elasticsearch", "hosts": ["http://fleet01:9200"], "is_default": true}' \
   -H 'Content-Type: application/json' -H 'kbn-xsrf: true'
 
 printf '\nSuccessfully configured Kibana and generated tokens\n'
