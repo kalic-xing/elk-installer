@@ -29,28 +29,30 @@ until curl -s "$KIBANA_URL/api/status" | grep -q '"level":"available"'; do
   sleep 2
 done
 
-# Register Fleet Server hosts
-curl -sX POST -u "elastic:${ELASTIC_PASSWORD}" "$KIBANA_URL/api/fleet/fleet_server_hosts" \
-  -d '{"name": "fleet01", "host_urls": ["https://fleet01:8220"], "is_default": true}' \
-  -H 'Content-Type: application/json' -H 'kbn-xsrf: true'
+# Function to check if policy exists
+policy_exists() {
+  local policy_name=$1
+  curl -s -u "elastic:${ELASTIC_PASSWORD}" "$KIBANA_URL/api/fleet/agent_policies" -H 'Content-Type: application/json' | jq -e --arg name "$policy_name" '.items[] | select(.name == $name)' >/dev/null
+}
 
-# Create Fleet Server, Windows, and Linux policies in parallel
-(
+# Create Fleet Server, Windows, and Linux policies only if they don't already exist
+if ! policy_exists "fleet-server-default"; then
   curl -sX POST -u "elastic:${ELASTIC_PASSWORD}" "$KIBANA_URL/api/fleet/agent_policies" \
   -d '{"name": "fleet-server-default", "namespace": "default", "monitoring_enabled": ["metrics"], "description": "Policy for Fleet Server", "has_fleet_server": true}' \
   -H 'Content-Type: application/json' -H 'kbn-xsrf: true'
-) &
-(
+fi
+
+if ! policy_exists "Windows Policy"; then
   curl -sX POST -u "elastic:${ELASTIC_PASSWORD}" "$KIBANA_URL/api/fleet/agent_policies" \
   -d '{"name": "Windows Policy", "namespace": "default", "monitoring_enabled": ["logs"], "description": "Policy for Windows Machines"}' \
   -H 'Content-Type: application/json' -H 'kbn-xsrf: true'
-) &
-(
+fi
+
+if ! policy_exists "Linux Policy"; then
   curl -sX POST -u "elastic:${ELASTIC_PASSWORD}" "$KIBANA_URL/api/fleet/agent_policies" \
   -d '{"name": "Linux Policy", "namespace": "default", "monitoring_enabled": ["logs"], "description": "Policy for Linux Machines"}' \
   -H 'Content-Type: application/json' -H 'kbn-xsrf: true'
-)
-wait  # Wait for all background tasks to complete
+fi
 
 # Fetch enrollment tokens
 token_response=$(curl -sX GET "$KIBANA_URL/api/fleet/enrollment_api_keys" -u "elastic:${ELASTIC_PASSWORD}" -H 'Content-Type: application/json' -H 'kbn-xsrf: xx')
