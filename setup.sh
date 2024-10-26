@@ -190,8 +190,14 @@ setup_elk() {
             die "Failed to update ${key} in .env"
     done
 
+    # Attempt to pull Docker images with a retry mechanism
     info "Pulling the Images..."
-    docker compose pull >/dev/null 2>>"${ERROR_LOG}" || die "Failed to pull Docker images"
+
+    if ! docker compose pull >/dev/null 2>>"${ERROR_LOG}"; then
+        info "Initial Docker pull failed, retrying once more..."
+        sleep 10  # Optional delay before retry
+        docker compose pull >/dev/null 2>>"${ERROR_LOG}" || die "Failed to pull Docker images after retry"
+    fi
     
     info "Configuring the images..."
     docker compose up -d elasticsearch kibana setup 2>>"${ERROR_LOG}" || die "Failed to start ELK services"
