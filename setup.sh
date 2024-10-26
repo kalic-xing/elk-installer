@@ -1,165 +1,265 @@
 #!/bin/bash
 
-set -e  # Exit immediately if a command exits with a non-zero status
-set -u  # Treat unset variables as an error and exit immediately
-set -o pipefail  # Exit if any command in a pipeline fails
+################################################################################
+# ELK Stack Installation Script
+# 
+# This script automates the installation and configuration of the ELK stack
+# using Docker, ensuring that all required dependencies and configurations 
+# are properly set up.
+#
+# Requirements:
+# - Minimum 3.8GB RAM
+# - Root privileges
+# - Debian-based system
+#
+# Usage: sudo ./setup.sh
+################################################################################
 
-# Minimum required RAM in MB (3.8GB = 3890MB)
-MIN_RAM_MB=3890
+# Strict error handling and enhanced environment
+set -euo pipefail
+IFS=$'\n\t'
 
-# Enable ERR trapping in functions and subshells
-set -o errtrace
+# Global configurations
+readonly MIN_RAM_MB=3890
+readonly ELK_PATH="/opt/elk-installer"
+readonly GIT_REPO="https://github.com/kalic-xing/elk-installer.git"
+readonly DOCKER_REPO="https://download.docker.com/linux/debian"
+readonly SETUP_TIMEOUT=600  # 10 minutes
+readonly ERROR_LOG=$(mktemp)
+readonly DOCKER_GPG_KEY="/etc/apt/keyrings/docker.gpg"
+readonly DOCKER_SOURCE_LIST="/etc/apt/sources.list.d/docker.list"
 
-# Temporary file for error output
-error_log=$(mktemp)
-
-# Trap for errors, capturing the line, the command, and the error output
-trap 'last_command=$BASH_COMMAND; error_code=$?; echo "Error occurred at line $LINENO: $last_command"; echo "Error message: $(cat $error_log)"; rm -f $error_log; exit $error_code' ERR
-
-# Function to check total RAM
-check_total_ram() {
-    if ! command -v free &> /dev/null; then
-        echo "[ERROR] 'free' command not found. Please install it."
-        exit 1
-    fi
-
-    total_ram=$(free -m | grep "Mem:" | awk '{print $2}')
-
-    if (( total_ram < MIN_RAM_MB )); then
-        echo "[ERROR] The machine does not have enough RAM. At least ${MIN_RAM_MB}MB is required."
-        exit 1
-    fi
-}
-
-# Call the RAM check function
-check_total_ram 2>> $error_log
-
-# Ensure the script is run as root
-if (( $EUID != 0 )); then
-    echo "Please run as using sudo"
-    exit 1
-fi
-
-# Variables
-elk_path="/opt/elk-installer"
-git_repo="https://github.com/kalic-xing/elk-installer.git"
-docker_repo="https://download.docker.com/linux/debian"
-
-declare -A env_vars
-env_vars=(
+# Environment variables for ELK
+declare -A ENV_VARS
+ENV_VARS=(
     ["ELASTIC_PASSWORD"]="lablab"
     ["KIBANA_PASSWORD"]="1234.Abc"
     ["STACK_VERSION"]="8.14.1"
 )
 
-# Function to check if a command exists
-command_exists() {
-    command -v "$1" >/dev/null 2>&1
+################################################################################
+# Logging and error handling
+################################################################################
+
+log() {
+    local level="$1"
+    shift
+    echo "[${level}] $(date '+%Y-%m-%d %H:%M:%S') - $*"
 }
 
-# Echo status for each step
-echo_step() {
-    echo "[INFO] $1"
+info() {
+    log "INFO" "$@"
 }
 
-install_docker() {
-    echo_step "Docker is not installed. Installing Docker..."
+error() {
+    log "ERROR" "$@" >&2
+}
+
+die() {
+    error "$@"
+    exit 1
+}
+
+cleanup() {
+    local exit_code=$?
+    rm -f "${ERROR_LOG}"
+    if [ ${exit_code} -ne 0 ]; then
+        error "Script failed with exit code ${exit_code}"
+        if [ -f "${ERROR_LOG}" ]; then
+            error "Last error: $(cat "${ERROR_LOG}")"
+        fi
+    fi
+    exit ${exit_code}
+}
+
+################################################################################
+# System checks
+################################################################################
+
+check_root() {
+    if [ "$EUID" -ne 0 ]; then
+        die "Please run the script with sudo or as root."
+    fi
+}
+
+check_ram() {
+    if ! command -v free >/dev/null 2>&1; then
+        die "'free' command not found. Please install the procps package."
+    fi
+
+    local total_ram
+    total_ram=$(free -m | awk '/^Mem:/{print $2}')
+
+    if [ "${total_ram}" -lt "${MIN_RAM_MB}" ]; then
+        die "Insufficient RAM. Required: ${MIN_RAM_MB}MB, Available: ${total_ram}MB"
+    fi
+}
+
+check_dependencies() {
+    local deps=("curl" "git" "gpg" "awk")
+    local missing_deps=()
+
+    for dep in "${deps[@]}"; do
+        if ! command -v "${dep}" >/dev/null 2>&1; then
+            missing_deps+=("${dep}")
+        fi
+    done
+
+    if [ ${#missing_deps[@]} -ne 0 ]; then
+        die "Missing required dependencies: ${missing_deps[*]}"
+    fi
+}
+
+################################################################################
+# Docker installation and configuration
+################################################################################
+
+verify_gpg_key() {
+    local key_url="$1"
+    local temp_key
+    temp_key=$(mktemp)
+    
+    if ! curl -fsSL "${key_url}" -o "${temp_key}"; then
+        rm -f "${temp_key}"
+        return 1
+    fi
+    
+    if ! gpg --quiet --dry-run "${temp_key}" >/dev/null 2>&1; then
+        rm -f "${temp_key}"
+        return 1
+    fi
+    
+    rm -f "${temp_key}"
+    return 0
+}
+
+setup_docker_repository() {
+    info "Setting up Docker repository..."
     
     mkdir -p /etc/apt/keyrings
 
-    echo_step "Setting up Docker repository..." 
-    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] $docker_repo bookworm stable" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
-    curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg 2>> $error_log
+    info "Adding Docker's official GPG key..."
+    curl -fsSL "${DOCKER_REPO}/gpg" | gpg --dearmor -o "${DOCKER_GPG_KEY}" 2>>"${ERROR_LOG}" || \
+        die "Failed to add Docker GPG key"
 
-    echo_step "Updating package list and installing Docker..."
-    apt-get update -y >/dev/null 2>&1 && apt-get install -y docker-ce docker-ce-cli containerd.io >/dev/null 2>&1
-
-    echo_step "Configuring Docker to start on boot..."
-    systemctl enable docker --now 2>> $error_log
-
-    echo_step "Adding user 'kali' to the Docker group..."
-    usermod -aG docker kali 2>> $error_log
-}
-
-clone_repo() {
-    if [ ! -d "$elk_path" ]; then
-        echo_step "Cloning the ELK installer repository..." 
-        git clone "$git_repo" "$elk_path" 2>> $error_log
+    if [ ! -f "${DOCKER_SOURCE_LIST}" ] || ! grep -q "${DOCKER_REPO}" "${DOCKER_SOURCE_LIST}"; then
+        info "Configuring Docker repository..."
+        echo "deb [arch=amd64 signed-by=${DOCKER_GPG_KEY}] ${DOCKER_REPO} bookworm stable" | \
+            tee "${DOCKER_SOURCE_LIST}" >/dev/null || \
+            die "Failed to add Docker repository"
     else
-        echo_step "$elk_path already exists. Skipping clone."
+        info "Docker repository already configured."
     fi
 }
 
-(command_exists docker || install_docker) &
-clone_repo &
+install_docker() {
+    info "Checking Docker installation..."
 
-wait
-
-cd "$elk_path"
-
-echo_step "Updating .env file with environment variables..."
-for key in "${!env_vars[@]}"; do
-    sed -i "s/^$key=.*/$key=${env_vars[$key]}/" ./.env 2>> $error_log
-done
-
-echo_step "Pulling the Docker images..."
-docker compose pull 2>> $error_log
-
-echo_step "Starting Docker services for Elasticsearch, Kibana, and setup initialization..."
-docker compose up -d elasticsearch kibana setup 2>> $error_log
-
-echo_step "Waiting for setup to complete..."
-timeout=600  
-start=$(date +%s)
-
-while [[ $(($(date +%s) - start)) -lt $timeout ]]; do
-    STATUS=$(docker inspect -f '{{.State.Status}}' setup 2>> $error_log)
-    
-    if [[ "$STATUS" == "exited" ]]; then
-        echo_step "Setup completed. Starting Fleet Agent..."
-        chmod +x ./scripts/token.sh 2>> $error_log
-        ./scripts/token.sh 2>> $error_log >/dev/null
-        docker compose up -d elastic-agent 2>> $error_log
-        break
+    if ! command -v docker >/dev/null 2>&1; then
+        info "Installing Docker..."
+        setup_docker_repository
+        apt-get update >/dev/null && apt-get install -y docker-ce docker-ce-cli containerd.io >/dev/null 2>>"${ERROR_LOG}" || \
+            die "Docker installation failed"
     fi
 
-    sleep 5  
-done
+    if ! systemctl is-active --quiet docker; then
+        systemctl enable --now docker || die "Failed to enable Docker service"
+    fi
 
-if [[ $(($(date +%s) - start)) -ge $timeout ]]; then
-    echo "[ERROR] Timeout reached. Setup did not complete within 10 minutes."
-    exit 1
-fi
+    if ! groups kali | grep -q docker; then
+        usermod -aG docker kali || die "Failed to add kali user to docker group"
+        info "Added kali user to docker group. Please log out and back in for changes to take effect."
+    fi
+}
 
-check_and_add_aliases() {
-    local alias_file="/home/kali/.aliases"
-    local compose_file_path="/opt/elk-installer/docker-compose.yml"  
+################################################################################
+# ELK setup and configuration
+################################################################################
+
+setup_elk() {
+    info "Cloning the ELK installer repository..."
+
+    if [ ! -d "${ELK_PATH}" ]; then
+        git clone "${GIT_REPO}" "${ELK_PATH}" 2>>"${ERROR_LOG}" || die "Failed to clone ELK installer repository"
+    fi
+
+    cd "${ELK_PATH}" || die "Failed to change to ${ELK_PATH}"
+
+    for key in "${!ENV_VARS[@]}"; do
+        sed -i "s/^${key}=.*/${key}=${ENV_VARS[${key}]}/" .env || \
+            die "Failed to update ${key} in .env"
+    done
+
+    info "Pulling the Images..."
+    docker compose pull >/dev/null 2>>"${ERROR_LOG}" || die "Failed to pull Docker images"
+    
+    info "Configuring the images..."
+    docker compose up -d elasticsearch kibana setup 2>>"${ERROR_LOG}" || die "Failed to start ELK services"
+
+    info "Waiting for setup to complete..."
+    local start_time=$(date +%s)
+
+    while true; do
+        if [ "$(($(date +%s) - start_time))" -gt "${SETUP_TIMEOUT}" ]; then
+            die "Setup timed out after ${SETUP_TIMEOUT} seconds"
+        fi
+
+        if docker inspect -f '{{.State.Status}}' setup 2>/dev/null | grep -q "exited"; then
+            break
+        fi
+        sleep 5
+    done
+
+    chmod +x ./scripts/token.sh || die "Failed to make token script executable"
+    ./scripts/token.sh >/dev/null || die "Failed to generate token"
+    docker compose up -d elastic-agent 2>>"${ERROR_LOG}" || die "Failed to start Elastic Agent"
+}
+
+configure_aliases() {
+    info "Configuring aliases..."
+    local compose_path="${ELK_PATH}/docker-compose.yml"
+    local zshrc_file="/home/kali/.zshrc"
 
     local aliases=(
-    "alias elk-start='docker compose -f $compose_file_path start elasticsearch kibana elastic-agent'"
-    "alias elk-stop='docker compose -f $compose_file_path stop'"
-    "alias elk-reset='(cd /opt/elk-installer && docker compose down -v && docker compose up -d elasticsearch kibana setup && echo [ INFO ] Waiting for setup to complete... && while [ \"\$(docker inspect -f '\''{{.State.Status}}'\'' setup)\" != "exited" ]; do sleep 1; done && sudo ./scripts/token.sh && docker compose up -d elastic-agent)'"
+        "alias elk-start='docker compose -f ${compose_path} start elasticsearch kibana elastic-agent && echo \"\nAccess the Elastic SIEM at: http://localhost:5601\"'"
+        "alias elk-stop='docker compose -f ${compose_path} stop'"
+        "alias elk-reset='(cd ${ELK_PATH} && docker compose down -v && docker compose up -d elasticsearch kibana setup && echo [INFO] Waiting for setup to complete... && while [ \"\$(docker inspect -f \"{{.State.Status}}\" setup 2>/dev/null)\" != \"exited\" ]; do sleep 1; done && sudo ./scripts/token.sh && docker compose up -d elastic-agent)'"
     )
 
-    if [ ! -f "$alias_file" ]; then
-        touch "$alias_file" 2>> $error_log
-    fi
-
-    for alias in "${aliases[@]}"; do
-        if ! grep -qxF "$alias" "$alias_file"; then
-            echo "$alias" >> "$alias_file" 2>> $error_log
-        fi
-    done
+    # Add a newline and a comment before appending the aliases
+    {
+        echo ""
+        echo "# ELK aliases"
+        for alias in "${aliases[@]}"; do
+            echo "${alias}"
+        done
+    } >> "${zshrc_file}" || die "Failed to add aliases to .zshrc"
 }
 
-check_and_add_aliases
+################################################################################
+# Main script execution
+################################################################################
 
-echo "[INFO] ELK setup complete!"
-echo ""
-echo "You can now manage your ELK instance using the following commands:"
-echo "  elk-start  : Starts the ELK services"
-echo "  elk-stop   : Stops the ELK services"
-echo "  elk-reset  : Resets the ELK services"
-echo ""
-echo "Access the Elastic SIEM at: http://localhost:5601"
-echo ""
+main() {
+    trap cleanup EXIT
+    trap 'error "Error on line $LINENO. Command: $BASH_COMMAND"' ERR
+
+    check_root
+    check_ram
+    check_dependencies
+
+    command -v docker >/dev/null 2>&1 || install_docker
+    setup_elk
+    configure_aliases
+
+    info "ELK setup complete!"
+    echo
+    echo "Available commands:"
+    echo "  elk-start  : Starts the ELK services"
+    echo "  elk-stop   : Stops the ELK services"
+    echo "  elk-reset  : Resets the ELK services"
+    echo
+    echo "Access the Elastic SIEM at: http://localhost:5601"
+}
+
+main "$@"
