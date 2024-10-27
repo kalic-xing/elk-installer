@@ -41,18 +41,29 @@ ENV_VARS=(
 # Logging and error handling
 ################################################################################
 
+# ANSI color codes for log levels
+COLOR_RESET="\033[0m"
+COLOR_INFO="\033[0;32m"    # Green for INFO
+COLOR_WARN="\033[0;33m"    # Yellow for WARNING
+COLOR_ERROR="\033[0;31m"   # Red for ERROR
+
 log() {
     local level="$1"
-    shift
-    echo "[${level}] $(date '+%Y-%m-%d %H:%M:%S') - $*"
+    local color="$2"
+    shift 2
+    echo -e "[${color}${level}${COLOR_RESET}] $(date '+%Y-%m-%d %H:%M:%S') - $*"
 }
 
 info() {
-    log "INFO" "$@"
+    log "INFO" "${COLOR_INFO}" "$@"
+}
+
+warn() {
+    log "WARNING" "${COLOR_WARN}" "$@"
 }
 
 error() {
-    log "ERROR" "$@" >&2
+    log "ERROR" "${COLOR_ERROR}" "$@" >&2
 }
 
 die() {
@@ -91,9 +102,11 @@ check_ram() {
     total_ram=$(free -m | awk '/^Mem:/{print $2}')
 
     if [ "${total_ram}" -lt "${MIN_RAM_MB}" ]; then
-        die "Insufficient RAM. Required: ${MIN_RAM_MB}MB, Available: ${total_ram}MB"
+        warn "Insufficient RAM: ${total_ram}MB. For optimal SIEM performance, Consider upgrading to atleast 4GB after installation for efficient operation."
+        sleep 3
     fi
 }
+
 
 check_dependencies() {
     local deps=("curl" "git" "gpg" "awk")
@@ -194,7 +207,7 @@ setup_elk() {
     info "Pulling the Images..."
 
     if ! docker compose pull >/dev/null 2>>"${ERROR_LOG}"; then
-        info "Initial Docker pull failed, retrying once more..."
+        warn "Initial Docker pull failed, retrying once more..."
         sleep 10  # Optional delay before retry
         docker compose pull >/dev/null 2>>"${ERROR_LOG}" || die "Failed to pull Docker images after retry"
     fi
