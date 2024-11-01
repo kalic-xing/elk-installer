@@ -103,7 +103,8 @@ fi
 echo_step "Installing the elastic agent..."
 nxc_output=$(nxc smb $windows_ip -u $username -p $password -X "Add-Content -Path C:\\Windows\\System32\\Drivers\\etc\\hosts -Value '$tun0_ip fleet01'; \
     if (\$?) { Expand-Archive C:\\Windows\\Temp\\elastic-agent-8.14.3-windows-x86_64.zip -DestinationPath C:\\Windows\\Temp -Force; \
-    if (\$?) { C:\\Windows\\Temp\\elastic-agent-8.14.3-windows-x86_64\\elastic-agent.exe install --url=https://fleet01:8220 --enrollment-token='$token' -inf }}" --verbose)
+    if (\$?) { C:\\Windows\\Temp\\elastic-agent-8.14.3-windows-x86_64\\elastic-agent.exe install --url=https://fleet01:8220 --enrollment-token='$token' -inf; \
+    C:\Sysmon\Sysmon.exe -c C:\Sysmon\sysmonconfig-export.xml }}" --verbose)
 
 # Check if the output contains the success message
 if echo "$nxc_output" | grep -iq "successfully"; then
