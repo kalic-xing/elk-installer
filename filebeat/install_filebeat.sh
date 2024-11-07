@@ -33,9 +33,6 @@ main() {
 
     # Start service
     sudo_cmd systemctl start filebeat >/dev/null 2>&1 || handle_error "Failed to start Filebeat service"
-    
-    echo "Filebeat installation completed successfully"
-}
 
 # Check if required variables are set
 if [ -z "$password" ] || [ -z "$filebeat_deb" ]; then
