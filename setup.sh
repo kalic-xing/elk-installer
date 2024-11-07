@@ -168,6 +168,7 @@ setup_docker_repository() {
 install_docker_and_sshpass() {
     info "Checking Docker and sshpass installation..."
 
+    # Check if Docker is installed, and install if necessary
     if ! command -v docker >/dev/null 2>&1; then
         info "Installing Docker..."
         setup_docker_repository
@@ -175,10 +176,12 @@ install_docker_and_sshpass() {
             die "Docker installation failed"
     fi
 
+    # Ensure Docker service is running
     if ! systemctl is-active --quiet docker; then
         systemctl enable --now docker || die "Failed to enable Docker service"
     fi
 
+    # Add current user to Docker group if not already a member
     if ! groups kali | grep -q docker; then
         usermod -aG docker kali || die "Failed to add kali user to docker group"
         info "Added kali user to docker group. Please log out and back in for changes to take effect."
@@ -274,7 +277,9 @@ main() {
     check_ram
     check_dependencies
 
-    command -v docker >/dev/null 2>&1 || install_docker
+    # Install Docker and sshpass if necessary
+    install_docker_and_sshpass
+
     setup_elk
     configure_aliases
 
