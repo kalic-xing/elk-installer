@@ -165,8 +165,8 @@ setup_docker_repository() {
     fi
 }
 
-install_docker() {
-    info "Checking Docker installation..."
+install_docker_and_sshpass() {
+    info "Checking Docker and sshpass installation..."
 
     if ! command -v docker >/dev/null 2>&1; then
         info "Installing Docker..."
@@ -182,6 +182,13 @@ install_docker() {
     if ! groups kali | grep -q docker; then
         usermod -aG docker kali || die "Failed to add kali user to docker group"
         info "Added kali user to docker group. Please log out and back in for changes to take effect."
+    fi
+
+    # Check if sshpass is installed, and install if necessary
+    if ! command -v sshpass >/dev/null 2>&1; then
+        info "sshpass not found. Installing sshpass..."
+        apt-get install -y sshpass >/dev/null 2>>"${ERROR_LOG}" || \
+            die "sshpass installation failed"
     fi
 }
 
