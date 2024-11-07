@@ -143,51 +143,35 @@ install_on_linux() {
     # Filebeat download link and target location
     local filebeat_url="https://artifacts.elastic.co/downloads/beats/filebeat/filebeat-8.14.3-amd64.deb"
     local filebeat_deb="/opt/elk-installer/filebeat-8.14.3-amd64.deb"
+    local local_config="/opt/elk-installer/filebeat/filebeat.yml"
+    local install_script="/opt/elk-installer/filebeat/install_filebeat.sh"
+    local modified_config="/tmp/filebeat.yml"
 
     # Step 1: Download Filebeat .deb package if it doesn't already exist
     if [ ! -f "$filebeat_deb" ]; then
         info "Downloading Filebeat .deb package..."
         curl -sL "$filebeat_url" -o "$filebeat_deb" || die "Failed to download Filebeat .deb package"
-    else
-        info "Filebeat .deb package already exists at $filebeat_deb. Skipping download."
     fi
 
-    # Step 2: Upload the Filebeat .deb package to the target Linux machine using SCP with sshpass
-    info "Uploading Filebeat .deb package to $target_ip..."
-    sshpass -p "$password" scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "$filebeat_deb" "$username@$target_ip:/tmp/" >/dev/null || die "Failed to upload Filebeat to target Linux machine"
+    # Step 2: Create a modified configuration file from the original filebeat.yml with updated TUN0 IP
+    info "Creating modified filebeat.yml configuration file..."
+    sed "s/{{TUN0}}/$tun0_ip/g" "$local_config" > "$modified_config"
 
-    # Step 3: Connect to the target machine to install, configure, and run Filebeat
-    sshpass -p "$password" ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "$username@$target_ip" bash -s <<EOF
-        # Install the Filebeat .deb package silently
-        echo "$password" | sudo -S dpkg -i /tmp/$(basename "$filebeat_deb") >/dev/null 2>&1 || { echo "Failed to install Filebeat"; exit 1; }
+    # Step 3: Update the install.sh script with dynamic values for password and filebeat_deb
+    info "Updating install_filebeat script with paths and password..."
+    sed -i "s|^password=.*|password=$password|" "$install_script"
+    sed -i "s|^filebeat_deb=.*|filebeat_deb=/tmp/$(basename "$filebeat_deb")|" "$install_script"
 
-        # Replace the filebeat.yml content with the custom configuration
-        echo "$password" | sudo -S bash -c 'cat <<YML > /etc/filebeat/filebeat.yml
-filebeat.inputs:
-  - type: log
-    enabled: true
-    paths:
-      - /var/log/*.log
-      - /var/log/apache2/*.log  # Capture Apache logs
+    # Step 4: Upload the Filebeat .deb package, configuration file, and the script to the target Linux machine using a single SCP command
+    info "Uploading Filebeat .deb package, configuration, and install script to $target_ip..."
+    sshpass -p "$password" scp -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no \
+        "$filebeat_deb" "$modified_config" "$install_script" \
+        "$username@$target_ip:/tmp/" >/dev/null 2>&1 || die "Failed to upload files to target Linux machine"
 
-filebeat.config.modules:
-  path: ${path.config}/modules.d/*.yml
-  reload.enabled: true
-  
-setup.dashboards.enabled: true
-
-setup.kibana:
-  host: "$tun0_ip:5601"  # Kibana URL
-
-output.elasticsearch:
-  hosts: ["$tun0_ip:9200"]  # Elasticsearch output
-  username: "elastic"
-  password: "lablab"
-YML'
-
-        # Step 4: Enable and start Filebeat as a background service
-        echo "$password" | sudo -S systemctl start filebeat >/dev/null 2>&1
-EOF
+    # Step 5: Execute the script on the remote machine to install and configure Filebeat
+    sshpass -p "$password" ssh -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no \
+        "$username@$target_ip" "bash /tmp/install_filebeat.sh" 2>/dev/null || \
+        die "Failed to run the installation script on the target machine"
 
     info "Filebeat setup on Linux completed successfully."
 }
