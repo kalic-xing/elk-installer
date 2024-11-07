@@ -284,6 +284,13 @@ main() {
     configure_aliases
 
     info "ELK setup complete!"
+
+    echo
+    echo "ELK Stack Credentials:"
+    echo "  Elastic Username: elastic"
+    echo "  Elastic Password: ${ENV_VARS["ELASTIC_PASSWORD"]}"
+    echo
+    
     echo
     echo "Available commands:"
     echo "  elk-start  : Starts the ELK services"
