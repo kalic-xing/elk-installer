@@ -138,8 +138,6 @@ EOF
 
 # Define the function for Linux setup
 install_on_linux() {
-    info "Setting up Filebeat on Linux..."
-
     # Filebeat download link and target location
     local filebeat_url="https://artifacts.elastic.co/downloads/beats/filebeat/filebeat-8.14.3-amd64.deb"
     local filebeat_deb="/opt/elk-installer/filebeat-8.14.3-amd64.deb"
@@ -166,12 +164,13 @@ install_on_linux() {
     info "Uploading Filebeat .deb package, configuration, and install script to $target_ip..."
     sshpass -p "$password" scp -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no \
         "$filebeat_deb" "$modified_config" "$install_script" \
-        "$username@$target_ip:/tmp/" >/dev/null 2>&1 || die "Failed to upload files to target Linux machine"
+        "$username@$target_ip:/tmp/" >/dev/null 2>&1 || die "Failed to upload files to target Linux machine $target_ip"
 
+    info "Executing the filebeat install script..."
     # Step 5: Execute the script on the remote machine to install and configure Filebeat
     sshpass -p "$password" ssh -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no \
         "$username@$target_ip" "bash /tmp/install_filebeat.sh" 2>/dev/null || \
-        die "Failed to run the installation script on the target machine"
+        die "Failed to run the installation script on the target machine $target_ip"
 
     info "Filebeat setup on Linux completed successfully."
 }
