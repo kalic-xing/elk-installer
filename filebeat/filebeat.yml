@@ -4,6 +4,7 @@ filebeat.inputs:
     paths:
       - /var/log/*.log
       - /var/log/apache2/*.log  # Capture Apache logs
+      - /var/log/audit/*.log # Capture Audit logs
 
 # filebeat.config.modules:
 #   path: ${path.config}/modules.d/*.yml
