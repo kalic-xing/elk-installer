@@ -26,9 +26,12 @@ target_ip=""
 username=""
 password=""
 operating_system=""
-token_file="/opt/elk-installer/tokens/enrollment_tokens.txt"
-elastic_zip="/opt/elk-installer/elastic-agent-8.14.3-windows-x86_64.zip"
-commands_file="/opt/elk-installer/commands"
+installer_dir="/opt/elk-installer"
+token_file="$installer_dir/tokens/enrollment_tokens.txt"
+
+
+# Variables for options
+install_sysmon_only=false # Default value
 
 # Logging functions
 log() {
@@ -62,17 +65,24 @@ usage() {
     echo "  -u : Username for Windows machine"
     echo "  -p : Password for Windows machine"
     echo "  -o : Operating System type ('win' for Windows, 'lin' for Linux)"
+    echo "  --sysmon : Installs sysmon windows machines"
     exit 1
 }
 
 # Parse command-line options and validate required arguments
 parse_args() {
-    while getopts ":i:u:p:o:" opt; do
+    while getopts ":i:u:p:o:-:" opt; do
         case $opt in
             i) target_ip="$OPTARG" ;;
             u) username="$OPTARG" ;;
             p) password="$OPTARG" ;;
             o) operating_system="$OPTARG" ;;
+            -)
+                case "$OPTARG" in
+                    sysmon) install_sysmon_only=true ;;  # Set sysmon flag if --sysmon is provided
+                    *) error "Invalid option: --$OPTARG"; usage ;;
+                esac
+                ;;
             \?) error "Invalid option: -$OPTARG"; usage ;;
             :) error "Option -$OPTARG requires an argument."; usage ;;
         esac
@@ -85,7 +95,6 @@ parse_args() {
     fi
 }
 
-
 # Retrieve VPN IP (tun0 IP)
 get_tun0_ip() {
     tun0_ip=$(/usr/share/kali-themes/xfce4-panel-genmon-vpnip.sh | awk -F '<txt>' '{print $2}' | awk -F '</txt>' '{print $1}')
@@ -94,85 +103,147 @@ get_tun0_ip() {
     fi
 }
 
-# Define the function for Windows setup
+# Reusable function to upload files to target Windows machine
+upload_files() {
+    local ip="$1"
+    local files=("${@:2}")
+    local commands_file="$installer_dir/commands_upload.txt"
+
+    # Prepare commands file for uploading files
+    : > "$commands_file"  # Clear existing commands
+    echo "use C$" >> "$commands_file"
+    echo "cd Windows\\Temp" >> "$commands_file"
+    for file in "${files[@]}"; do
+        echo "put $file" >> "$commands_file"
+    done
+
+    # Run the upload command
+    info "Uploading files to $ip..."
+    output=$(impacket-smbclient "$username:$password@$ip" -inputfile "$commands_file" 2>&1)
+    if echo "$output" | grep -iq "error"; then
+        error "File upload failed for $ip: $(echo "$output" | tail -n1)"
+        return 1  # Return with error if upload fails
+    fi
+}
+
+# function to execute remote commands on Windows
+execute_remote_command() {
+    local ip="$1"
+    local command="$2"
+
+    nxc_output=$(nxc smb "$ip" -u "$username" -p "$password" -X "$command" --verbose 2>&1)
+    if echo "$nxc_output" | grep -iq "successfully"; then
+        info "Command executed successfully on $ip!"
+        return 0
+    else
+        error "Command execution failed for $ip: $(echo "$nxc_output" | tail -n2)"
+        return 1
+    fi
+}
+
+# Function to install the Elastic Agent and optionally Sysmon on Windows
 install_on_windows() {
-    # Check if the Elastic Agent zip file exists, download if missing
+    # Define URLs for Sysmon and configuration
+    local sysmon_zip_url="https://download.sysinternals.com/files/Sysmon.zip"
+    local sysmon_config_url="https://raw.githubusercontent.com/olafhartong/sysmon-modular/master/sysmonconfig-with-filedelete.xml"
+    local elastic_agent_url="https://artifacts.elastic.co/downloads/beats/elastic-agent/elastic-agent-8.14.3-windows-x86_64.zip"
+
+    # Variables for file locations
+    local elastic_zip="$installer_dir/elastic-agent-8.14.3-windows-x86_64.zip"
+    local sysmon_zip="$installer_dir/Sysmon.zip"
+    local sysmon_config="$installer_dir/sysmonconfig.xml"
+
+    # Download Elastic Agent zip file if it doesn't exist
     if [ ! -f "$elastic_zip" ]; then
         info "Downloading Elastic Agent..."
-        curl -sL https://artifacts.elastic.co/downloads/beats/elastic-agent/elastic-agent-8.14.3-windows-x86_64.zip -o "$elastic_zip" || \
-            die "Failed to download Elastic Agent"
+        curl -sL "$elastic_agent_url" -o "$elastic_zip" || die "Failed to download Elastic Agent"
     fi
 
-    # Create the commands file if it doesn't exist
-    if [ ! -f "$commands_file" ]; then
-        cat << EOF > "$commands_file"
-use C$
-cd Windows\\Temp
-put $elastic_zip
-EOF
+    # Download Sysmon files if --sysmon is set
+    if [ "$install_sysmon_only" = true ]; then
+        if [ ! -f "$sysmon_zip" ]; then
+            info "Downloading Sysmon..."
+            curl -sL "$sysmon_zip_url" -o "$sysmon_zip" || die "Failed to download Sysmon"
+        fi
+        if [ ! -f "$sysmon_config" ]; then
+            info "Downloading Sysmon configuration file..."
+            curl -sL "$sysmon_config_url" -o "$sysmon_config" || die "Failed to download Sysmon configuration file"
+        fi
     fi
 
-    # Upload the Elastic Agent zip file using impacket-smbclient
-    info "Uploading the Elastic Agent zip file to $target_ip..."
-    output=$(impacket-smbclient "$username:$password@$target_ip" -inputfile "$commands_file" 2>&1)
-    if echo "$output" | grep -iq "error"; then
-        error "File upload failed: $(echo "$output" | tail -n1)"
-        exit 1
-    fi
+    # Array to hold PIDs for both upload and installation processes
+    declare -a process_pids=()
 
-    # Install the Fleet Agent on the target Windows machine
-    info "Installing the Elastic Agent on the Windows machine..."
-    nxc_output=$(nxc smb "$target_ip" -u "$username" -p "$password" -X "Add-Content -Path C:\\Windows\\System32\\Drivers\\etc\\hosts -Value '$tun0_ip fleet01'; \
-        if (\$?) { Expand-Archive C:\\Windows\\Temp\\elastic-agent-8.14.3-windows-x86_64.zip -DestinationPath C:\\Windows\\Temp -Force; \
-        if (\$?) { C:\\Windows\\Temp\\elastic-agent-8.14.3-windows-x86_64\\elastic-agent.exe install --url=https://fleet01:8220 --enrollment-token='$token' -inf; \
-        C:\Sysmon\Sysmon.exe -c C:\Sysmon\sysmonconfig-export.xml }}" --verbose 2>&1)
+    files_to_upload=("$elastic_zip")
+    [ "$install_sysmon_only" = true ] && files_to_upload+=("$sysmon_zip" "$sysmon_config")
 
-    # Check if installation was successful
-    if echo "$nxc_output" | grep -iq "successfully"; then
-        info "Elastic Agent installation successful!"
-    else
-        error "Installation failed: $(echo "$nxc_output" | tail -n2)"
-        exit 1
-    fi
+        # Upload files
+        if upload_files "$target_ip" "${files_to_upload[@]}"; then
+            # Define installation command based on --sysmon option
+            if [ "$install_sysmon_only" = true ]; then
+                info "Installing Elastic Agent and Sysmon..."
+                nxc_command="Add-Content -Path C:\\Windows\\System32\\Drivers\\etc\\hosts -Value '$tun0_ip fleet01'; \
+                    if (\$?) { Expand-Archive C:\\Windows\\Temp\\elastic-agent-8.14.3-windows-x86_64.zip -DestinationPath C:\\Windows\\Temp -Force; \
+                    if (\$?) { C:\\Windows\\Temp\\elastic-agent-8.14.3-windows-x86_64\\elastic-agent.exe install --url=https://fleet01:8220 --enrollment-token='$token' -inf; }; \
+                    if (!(Get-Service -Name Sysmon64 -ErrorAction SilentlyContinue)) { \
+                        Expand-Archive C:\\Windows\\Temp\\Sysmon.zip -DestinationPath C:\\Sysmon -Force; \
+                        C:\\Sysmon\\Sysmon64.exe -accepteula -i C:\\Windows\\Temp\\sysmonconfig.xml; }}"
+
+            else
+                info "Installing Elastic Agent ..."
+                nxc_command="Add-Content -Path C:\\Windows\\System32\\Drivers\\etc\\hosts -Value '$tun0_ip fleet01'; \
+                    if (\$?) { Expand-Archive C:\\Windows\\Temp\\elastic-agent-8.14.3-windows-x86_64.zip -DestinationPath C:\\Windows\\Temp -Force; \
+                    if (\$?) { C:\\Windows\\Temp\\elastic-agent-8.14.3-windows-x86_64\\elastic-agent.exe install --url=https://fleet01:8220 --enrollment-token='$token' -inf; \
+                    C:\Sysmon\Sysmon.exe -c C:\Sysmon\sysmonconfig-export.xml }}"
+            fi
+
+            # Execute the installation command and check the result
+            execute_remote_command "$target_ip" "$nxc_command"
+
+        else
+             error "Failed to upload files to $target_ip"
+        fi
 }
 
 # Define the function for Linux setup
 install_on_linux() {
-    # Filebeat download link and target location
-    local filebeat_url="https://artifacts.elastic.co/downloads/beats/filebeat/filebeat-8.14.3-amd64.deb"
-    local filebeat_deb="/opt/elk-installer/filebeat-8.14.3-amd64.deb"
-    local local_config="/opt/elk-installer/filebeat/filebeat.yml"
-    local install_script="/opt/elk-installer/filebeat/install_filebeat.sh"
-    local modified_config="/tmp/filebeat.yml"
+    # Variables for Elastic Agent
+    local elastic_agent_url="https://artifacts.elastic.co/downloads/beats/elastic-agent/elastic-agent-8.14.3-amd64.deb"
+    local elastic_agent="$installer_dir/elastic-agent-8.14.3-amd64.deb"
+    local install_script="$installer_dir/elastic-agent/install.sh"
 
-    # Step 1: Download Filebeat .deb package if it doesn't already exist
-    if [ ! -f "$filebeat_deb" ]; then
-        info "Downloading Filebeat .deb package..."
-        curl -sL "$filebeat_url" -o "$filebeat_deb" || die "Failed to download Filebeat .deb package"
+    # Step 1: Download Elastic Agent .deb package if it doesn't already exist
+    if [ ! -f "$elastic_agent" ]; then
+        info "Downloading Elastic Agent .deb package..."
+        curl -sL "$elastic_agent_url" -o "$elastic_agent" || die "Failed to download Elastic Agent .deb package"
     fi
 
-    # Step 2: Create a modified configuration file from the original filebeat.yml with updated TUN0 IP
-    info "Creating modified filebeat.yml configuration file..."
-    sed "s/{{TUN0}}/$tun0_ip/g" "$local_config" > "$modified_config"
+    # Step 2: Update the install_script with dynamic values
+    info "Updating install script with paths and password..."
+    declare -A script_vars=(
+        ["^tun0_ip=.*"]="tun0_ip=$tun0_ip"
+        ["^enrollment_key=.*"]="enrollment_key=$token"
+        ["^password=.*"]="password=$password"
+        ["^elastic_agent=.*"]="elastic_agent=/tmp/$(basename "$elastic_agent")"
+    )
+    
+    for key in "${!script_vars[@]}"; do
+        sed -i "s|$key|${script_vars[$key]}|" "$install_script"
+    done
 
-    # Step 3: Update the install.sh script with dynamic values for password and filebeat_deb
-    info "Updating install_filebeat script with paths and password..."
-    sed -i "s|^password=.*|password=$password|" "$install_script"
-    sed -i "s|^filebeat_deb=.*|filebeat_deb=/tmp/$(basename "$filebeat_deb")|" "$install_script"
-
-    # Step 4: Upload the Filebeat .deb package, configuration file, and the script to the target Linux machine using a single SCP command
-    info "Uploading Filebeat .deb package, configuration, and install script to $target_ip..."
+    # Step 3: Upload the Elastic Agent .deb package and the install script to the target Linux machine using SCP
+    info "Uploading Elastic Agent .deb package and install script to $target_ip..."
     sshpass -p "$password" scp -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no \
-        "$filebeat_deb" "$modified_config" "$install_script" \
-        "$username@$target_ip:/tmp/" >/dev/null 2>&1 || die "Failed to upload files to target Linux machine $target_ip"
+        "$elastic_agent" "$install_script" "$username@$target_ip:/tmp/" >/dev/null 2>&1 || \
+        die "Failed to upload files to target Linux machine $target_ip"
 
-    info "Executing the filebeat install script..."
-    # Step 5: Execute the script on the remote machine to install and configure Filebeat
+    # Step 4: Execute the script on the remote machine to install and configure the Elastic Agent
+    info "Executing the Elastic Agent install script..."
     sshpass -p "$password" ssh -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no \
-        "$username@$target_ip" "bash /tmp/install_filebeat.sh" 2>/dev/null || \
+        "$username@$target_ip" "bash /tmp/$(basename "$install_script")" 2>/dev/null || \
         die "Failed to run the installation script on the target machine $target_ip"
 
-    info "Filebeat setup on Linux completed successfully."
+    info "Elastic Agent setup on Linux completed successfully."
 }
 
 # Main function to control the script flow
