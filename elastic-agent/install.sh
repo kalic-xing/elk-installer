@@ -35,7 +35,7 @@ main() {
     enrollment_output=$(sudo_cmd elastic-agent enroll --url=https://fleet01:8220 --enrollment-token="$enrollment_key" --insecure 2>&1)
     
     # Check for successful enrollment
-    if ! echo "$enrollment_output" | grep -iq "successfully"; then
+    if echo "$enrollment_output" | grep -iqv "successfully"; then
         handle_error "Enrollment failed. Output: $enrollment_output"        
     fi
 

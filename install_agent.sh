@@ -27,6 +27,7 @@ username=""
 password=""
 operating_system=""
 installer_dir="/opt/elk-installer"
+downloads="$installer_dir/agent-downloads"
 token_file="$installer_dir/tokens/enrollment_tokens.txt"
 
 
@@ -149,9 +150,9 @@ install_on_windows() {
     local elastic_agent_url="https://artifacts.elastic.co/downloads/beats/elastic-agent/elastic-agent-8.14.3-windows-x86_64.zip"
 
     # Variables for file locations
-    local elastic_zip="$installer_dir/elastic-agent-8.14.3-windows-x86_64.zip"
-    local sysmon_zip="$installer_dir/Sysmon.zip"
-    local sysmon_config="$installer_dir/sysmonconfig.xml"
+    local elastic_zip="$downloads/elastic-agent-8.14.3-windows-x86_64.zip"
+    local sysmon_zip="$downloads/Sysmon.zip"
+    local sysmon_config="$downloads/sysmonconfig.xml"
 
     # Download Elastic Agent zip file if it doesn't exist
     if [ ! -f "$elastic_zip" ]; then
@@ -209,7 +210,7 @@ install_on_windows() {
 install_on_linux() {
     # Variables for Elastic Agent
     local elastic_agent_url="https://artifacts.elastic.co/downloads/beats/elastic-agent/elastic-agent-8.14.3-amd64.deb"
-    local elastic_agent="$installer_dir/elastic-agent-8.14.3-amd64.deb"
+    local elastic_agent="$downloads/elastic-agent-8.14.3-amd64.deb"
     local install_script="$installer_dir/elastic-agent/install.sh"
 
     # Step 1: Download Elastic Agent .deb package if it doesn't already exist
@@ -254,6 +255,11 @@ main() {
     # Check if the token file exists
     if [ ! -f "$token_file" ]; then
         die "Token file not found at $token_file"
+    fi
+
+    # Create the downloads directory to save the downloads
+    if [ ! -d "$downloads" ]; then
+        mkdir -p "$downloads" || { echo "Failed to create directory $downloads"; exit 1; }
     fi
 
     # Select the appropriate token and function based on the OS
