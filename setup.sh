@@ -250,9 +250,9 @@ configure_aliases() {
     local zshrc_file="/home/kali/.zshrc"
 
     local aliases=(
-    "alias elk-start='docker compose -f ${compose_path} start elasticsearch kibana elastic-agent && echo \"\nAccess the Elastic SIEM at: http://localhost:5601\"'"
-    "alias elk-stop='docker compose -f ${compose_path} stop'"
-    "alias elk-reset='(cd ${ELK_PATH} && echo [INFO] Removing the containers... && docker compose down -v &>/dev/null && sudo bash -c \"git reset --hard &>/dev/null && git pull &>/dev/null && echo [INFO] Re-running the setup && curl -sSL https://raw.githubusercontent.com/kalic-xing/elk-installer/refs/heads/main/setup.sh | bash\")'"
+    "alias elk-start='echo \"[INFO] Starting the docker containers...\" && docker compose -f ${compose_path} start elasticsearch kibana elastic-agent &>/dev/null && echo \"\nAccess the Elastic SIEM at: http://localhost:5601\"'"
+    "alias elk-stop='echo \"[INFO] Stopping the containers...\" && docker compose -f ${compose_path} stop'"
+    "alias elk-reset='(cd ${ELK_PATH} && echo \"[INFO] Removing the containers...\" && docker compose down -v &>/dev/null && sudo bash -c \"git reset --hard &>/dev/null && git pull &>/dev/null && echo [INFO] Re-running the setup && ./setup.sh\")'"
     )
 
     # Check if aliases already exist
