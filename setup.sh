@@ -252,8 +252,13 @@ configure_aliases() {
     local aliases=(
         "alias elk-start='docker compose -f ${compose_path} start elasticsearch kibana elastic-agent && echo \"\nAccess the Elastic SIEM at: http://localhost:5601\"'"
         "alias elk-stop='docker compose -f ${compose_path} stop'"
-        "alias elk-reset='(cd ${ELK_PATH} && docker compose down -v && docker compose up -d elasticsearch kibana setup && echo \"[INFO] Waiting for setup to complete...\" && while [ \"\$(docker inspect -f \"{{.State.Status}}\" setup 2>/dev/null)\" != \"exited\" ]; do sleep 1; done && sudo ./scripts/token.sh && docker compose up -d elastic-agent)'"
+        "alias elk-reset='(cd ${ELK_PATH} && sudo git reset --hard &>/dev/null && sudo git pull &>/dev/null && sudo ./setup.sh'"
     )
+
+    # Check if aliases already exist
+    if grep -q "# ELK aliases" "${zshrc_file}"; then
+        return
+    fi
 
     # Add a newline and a comment before appending the aliases
     {
