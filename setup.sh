@@ -257,7 +257,7 @@ configure_aliases() {
 
     # Check if aliases already exist
     if grep -q "# ELK aliases" "${zshrc_file}"; then
-        return
+        sed -i '/# ELK aliases/,/# End of ELK aliases/d' "${zshrc_file}"
     fi
 
     # Add a newline and a comment before appending the aliases
@@ -267,6 +267,7 @@ configure_aliases() {
         for alias in "${aliases[@]}"; do
             echo "${alias}"
         done
+        echo "# End of ELK aliases"
     } >> "${zshrc_file}" || die "Failed to add aliases to .zshrc"
 }
 
