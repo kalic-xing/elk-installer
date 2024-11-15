@@ -251,7 +251,7 @@ configure_aliases() {
 
     local aliases=(
     "alias elk-start='echo \"[INFO] Starting the docker containers...\" && docker compose -f ${compose_path} start elasticsearch kibana elastic-agent &>/dev/null && echo \"\nAccess the Elastic SIEM at: http://localhost:5601\"'"
-    "alias elk-stop='echo \"[INFO] Stopping the containers...\" && docker compose -f ${compose_path} stop &>/dev/null && echo [INFO] Containers successfully stopped!'"
+    "alias elk-stop='echo \"[INFO] Stopping the containers...\" && docker compose -f ${compose_path} stop &>/dev/null && echo \"[INFO] Containers successfully stopped!\"'"
     "alias elk-reset='(cd ${ELK_PATH} && echo \"[INFO] Removing the containers...\" && docker compose down -v &>/dev/null && sudo bash -c \"git reset --hard &>/dev/null && git pull &>/dev/null && echo [INFO] Re-running the setup && ./setup.sh\")'"
     )
 
