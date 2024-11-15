@@ -252,7 +252,7 @@ configure_aliases() {
     local aliases=(
         "alias elk-start='docker compose -f ${compose_path} start elasticsearch kibana elastic-agent && echo \"\nAccess the Elastic SIEM at: http://localhost:5601\"'"
         "alias elk-stop='docker compose -f ${compose_path} stop'"
-        "alias elk-reset='(cd ${ELK_PATH} && sudo git reset --hard &>/dev/null && sudo git pull &>/dev/null && sudo ./setup.sh'"
+        "alias elk-reset='(cd ${ELK_PATH} && sudo bash -c \"git reset --hard &>/dev/null && git pull &>/dev/null && ./setup.sh\"'"
     )
 
     # Check if aliases already exist
