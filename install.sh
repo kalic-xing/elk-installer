@@ -132,10 +132,6 @@ validate_docker_environment() {
     if ! command -v docker compose >/dev/null 2>&1 && ! docker compose version >/dev/null 2>&1; then
         die "Docker Compose is not installed or not available"
     fi
-
-    if [ ! -f "${COMPOSE_FILE}" ]; then
-        die "Docker Compose file '${COMPOSE_FILE}' not found in current directory"
-    fi
 }
 
 check_container_health() {
@@ -302,7 +298,11 @@ execute_docker_compose() {
     else
         compose_cmd="docker-compose"
     fi
-       
+    
+    if [ ! -f "${COMPOSE_FILE}" ]; then
+        die "Docker Compose file '${COMPOSE_FILE}' not found in current directory"
+    fi
+    
     # Attempt to pull Docker images with a retry mechanism
     info "Pulling the Images..."
     if ! ${compose_cmd} -f ${COMPOSE_FILE} pull >/dev/null 2>>"${ERROR_LOG}"; then
@@ -369,7 +369,7 @@ main() {
     parse_arguments "$@"
 
     info "Starting Elastic Stack deployment script"
-    
+
     check_root
     check_ram
     install_docker_and_netexec
