@@ -14,7 +14,6 @@ set -euo pipefail
 ################################################################################
 
 readonly SCRIPT_NAME="${0##*/}"
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly ERROR_LOG=$(mktemp)
 readonly ELK_PATH="/opt/elk-installer"
 readonly GIT_REPO="https://github.com/kalic-xing/elk-installer.git"
