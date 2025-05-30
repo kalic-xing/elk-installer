@@ -15,7 +15,7 @@ A guide for setting up Elasticsearch, Kibana and Fleet. You can choose between t
 ## Using Bash Script
 
 ```sh
-sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/kalic-xing/elk-installer/main/elk.sh)"
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/kalic-xing/elk-installer/main/setup.sh)"
 ```
 
 ### Usage
@@ -33,27 +33,21 @@ git clone https://github.com/kalic-xing/elk-installer.git
 cd elk-installer/
 ```
 
-_Update ELASTIC_PASSWORD, KIBANA_PASSWORD & STACK_VERSION in `.env` file_
-
-2. Run Docker Compose:
+2. Create .env and update ELASTIC_PASSWORD, KIBANA_PASSWORD & STACK_VERSION
 
 ```
-docker compose up -d elasticsearch elasticsearch-init kibana token-init
+cat << EOF >> .env
+ELASTIC_PASSWORD=updateme
+KIBANA_PASSWORD=updateme
+STACK_VERSION=9.0.1
+EOF
 ```
 
-_Wait for token-init to reach exit status before proceeding with the next command._
-
-3. Run the Fleet service:
+3. Run Docker Compose:
 
 ```
-chmod +x ./scripts/token.sh && ./scripts/token.sh && docker compose up -d elastic-agent
+docker compose up -d
 ```
-
-## Todo
-
-- [ ]  Find a way to update FLEET_SERVER_SERVICE_TOKEN env before executing the container
-
-
 
 ## Contributing
 
