@@ -381,7 +381,5 @@ main() {
     info "Elastic Stack deployment completed successfully"
 }
 
-# Execute main function only if script is run directly
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    main "$@"
-fi
+# Execute main function
+main "$@"
