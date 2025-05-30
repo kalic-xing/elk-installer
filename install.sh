@@ -366,12 +366,12 @@ parse_arguments() {
 
 main() {
     trap cleanup EXIT ERR INT TERM
-    
+    parse_arguments "$@"
+
     info "Starting Elastic Stack deployment script"
     
     check_root
     check_ram
-    parse_arguments "$@"
     install_docker_and_netexec
     validate_docker_environment
     clone_elk
