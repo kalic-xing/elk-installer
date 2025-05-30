@@ -374,7 +374,7 @@ main() {
     parse_arguments "$@"
     install_docker_and_netexec
     validate_docker_environment
-    # clone_elk
+    clone_elk
     execute_docker_compose
     validate_all_containers
     
