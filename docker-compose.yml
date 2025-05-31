@@ -152,5 +152,4 @@ volumes:
 
 networks:
   elk:
-    driver: bridge
     external: true
