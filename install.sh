@@ -257,9 +257,11 @@ install_docker_and_netexec() {
 clone_elk() {
     info "Cloning the ELK installer repository..."
 
-    if [ ! -d "${ELK_PATH}" ]; then
-        git clone "${GIT_REPO}" "${ELK_PATH}" 2>>"${ERROR_LOG}" || die "Failed to clone ELK installer repository"
+    if [ -d "${ELK_PATH}" ]; then
+        rm -rf "${ELK_PATH}"
     fi
+
+    git clone "${GIT_REPO}" "${ELK_PATH}" 2>>"${ERROR_LOG}" || die "Failed to clone ELK installer repository"
 
     cd "${ELK_PATH}" || die "Failed to change to ${ELK_PATH}"
 
