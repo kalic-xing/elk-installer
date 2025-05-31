@@ -311,6 +311,17 @@ execute_docker_compose() {
         ${compose_cmd} -f ${COMPOSE_FILE} pull >/dev/null 2>>"${ERROR_LOG}" || die "Failed to pull Docker images after retry"
     fi
     
+    # Create the elk network if it doesn't exist
+    if [ ! docker network ls --format "{{.Name}}" | grep -q "^elk$"]; then
+        echo "Creating network 'elk'..."
+        if ! docker network create elk >/dev/null 2>"${ERROR_LOG}"; then
+            error "Docker network create failed"
+            [ -s "${ERROR_LOG}" ] && error "Docker network create failed: $(cat "${ERROR_LOG}")"
+            return 1
+        fi
+        echo "Network 'elk' created successfully"
+    fi
+
     info "Starting Elastic Stack deployment..."
     if ! ${compose_cmd} -f ${COMPOSE_FILE} --profile setup up -d >/dev/null 2>"${ERROR_LOG}"; then
         error "Docker Compose deployment failed"

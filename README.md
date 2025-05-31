@@ -43,10 +43,16 @@ STACK_VERSION=9.0.1
 EOF
 ```
 
-3. Run Docker Compose:
+3. Create the docker elk network:
 
 ```
-docker compose up -d
+docker network create elk
+```
+
+4. Run Docker Compose using setup profile:
+
+```
+docker compose --profile setup up -d
 ```
 
 ## Contributing
