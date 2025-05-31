@@ -265,10 +265,14 @@ clone_elk() {
 
     cd "${ELK_PATH}" || die "Failed to change to ${ELK_PATH}"
 
-    for key in "${!ENV_VARS[@]}"; do
-        sed -i "s/^${key}=.*/${key}=${ENV_VARS[${key}]}/" .env || \
-            die "Failed to update ${key} in .env"
-    done
+    info "Creating .env configuration file..."
+    cat > .env << EOF
+ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+STACK_VERSION=${STACK_VERSION}
+KIBANA_PASSWORD=${KIBANA_PASSWORD}
+EOF
+
+    info "Configuration file created successfully"
 }
 
 validate_all_containers() {
@@ -338,19 +342,19 @@ execute_docker_compose() {
 ################################################################################
 
 parse_arguments() {
-    local password="${DEFAULT_PASSWORD}"
-    local version="${DEFAULT_VERSION}"
+    ELASTIC_PASSWORD="${DEFAULT_PASSWORD}"
+    STACK_VERSION="${DEFAULT_VERSION}"
     
     while [[ $# -gt 0 ]]; do
         case $1 in
             --password)
                 [ -n "${2:-}" ] || die "Password argument requires a value"
-                password="$2"
+                ELASTIC_PASSWORD="$2"
                 shift 2
                 ;;
             --version)
                 [ -n "${2:-}" ] || die "Version argument requires a value"
-                version="$2"
+                STACK_VERSION="$2"
                 shift 2
                 ;;
             -h|--help)
@@ -363,13 +367,6 @@ parse_arguments() {
         esac
     done
     
-    # create .env
-    cat > .env << EOF
-ELASTIC_PASSWORD=${password}
-STACK_VERSION=${version}
-KIBANA_PASSWORD=${KIBANA_PASSWORD}
-EOF
-
     info "Configuration: Password=*****, Version=${version}"
 }
 
