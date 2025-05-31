@@ -312,7 +312,7 @@ execute_docker_compose() {
     fi
     
     # Create the elk network if it doesn't exist
-    if [ ! docker network ls --format "{{.Name}}" | grep -q "^elk$"]; then
+    if [ ! docker network ls --format "{{.Name}}" | grep -q "^elk$" ]; then
         echo "Creating network 'elk'..."
         if ! docker network create elk >/dev/null 2>"${ERROR_LOG}"; then
             error "Docker network create failed"
