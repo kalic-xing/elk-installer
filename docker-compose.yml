@@ -16,12 +16,12 @@ services:
         source: elasticsearch-data
         target: /usr/share/elasticsearch/data
     environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=true
-      - ES_JAVA_OPTS=-Xms512m -Xmx512m
-      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-changeme}
+      discovery.type: single-node
+      xpack.security.enabled: true
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+      ELASTIC_PASSWORD: "${ELASTIC_PASSWORD:?Error: ELASTIC_PASSWORD not set in .env file}"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sX GET -u elastic:${ELASTIC_PASSWORD:-changeme} 'http://elasticsearch:9200' | grep 'You Know, for Search' || exit 1"]
+      test: ["CMD-SHELL", "curl -sX GET -u elastic:${ELASTIC_PASSWORD} 'http://elasticsearch:9200' | grep 'You Know, for Search' || exit 1"]
       interval: 10s
       retries: 5
       start_period: 30s
@@ -35,10 +35,10 @@ services:
         limits:
           memory: 1g
     environment:
-     - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-     - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=a7a6311933d3503b89bc2dbc0b1234567890abcdef1234567890abcdef123456
-     - ELASTICSEARCH_USERNAME=kibana_system
-     - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD:-changeme}
+     ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+     XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY: a7a6311933d3503b89bc2dbc0b1234567890abcdef1234567890abcdef123456
+     ELASTICSEARCH_USERNAME: kibana_system
+     ELASTICSEARCH_PASSWORD: ${KIBANA_PASSWORD:-changeme}
     networks:
       - elk
     ports:
@@ -100,8 +100,8 @@ services:
       elasticsearch:
         condition: service_healthy
     environment:
-      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-changeme}
-      - KIBANA_PASSWORD=${KIBANA_PASSWORD:-changeme}
+      ELASTIC_PASSWORD: "${ELASTIC_PASSWORD:?Error: ELASTIC_PASSWORD not set in .env file}"
+      KIBANA_PASSWORD: "${KIBANA_PASSWORD:?Error: KIBANA_PASSWORD not set in .env file}"
     networks:
       - elk
     volumes:
@@ -117,8 +117,8 @@ services:
     profiles:
       - setup
     environment:
-      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-changeme}
-      - KIBANA_PASSWORD=${KIBANA_PASSWORD:-changeme}
+      ELASTIC_PASSWORD: "${ELASTIC_PASSWORD:?Error: ELASTIC_PASSWORD not set in .env file}"
+      KIBANA_PASSWORD: "${KIBANA_PASSWORD:?Error: KIBANA_PASSWORD not set in .env file}"
     volumes:
       - type: bind
         source: ./config/kb-setup.sh
