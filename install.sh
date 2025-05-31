@@ -363,10 +363,12 @@ parse_arguments() {
         esac
     done
     
-    # Export environment variables for Docker Compose
-    export ELASTIC_PASSWORD="${password}"
-    export STACK_VERSION="${version}"
-    export KIBANA_PASSWORD="${KIBANA_PASSWORD}"
+    # create .env
+    cat > .env << EOF
+ELASTIC_PASSWORD=${password}
+STACK_VERSION=${version}
+KIBANA_PASSWORD=${KIBANA_PASSWORD}
+EOF
 
     info "Configuration: Password=*****, Version=${version}"
 }
