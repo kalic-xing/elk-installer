@@ -313,13 +313,11 @@ execute_docker_compose() {
     
     # Create the elk network if it doesn't exist
     if ! docker network ls --format "{{.Name}}" | grep -q "^elk$"; then
-        echo "Creating network 'elk'..."
         if ! docker network create elk >/dev/null 2>"${ERROR_LOG}"; then
             error "Docker network create failed"
             [ -s "${ERROR_LOG}" ] && error "Docker network create failed: $(cat "${ERROR_LOG}")"
             return 1
         fi
-        echo "Network 'elk' created successfully"
     fi
 
     info "Starting Elastic Stack deployment..."
