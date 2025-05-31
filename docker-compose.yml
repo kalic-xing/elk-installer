@@ -19,31 +19,13 @@ services:
       - discovery.type=single-node
       - xpack.security.enabled=true
       - ES_JAVA_OPTS=-Xms512m -Xmx512m
-      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-changeme}
     healthcheck:
-      test: ["CMD-SHELL", "curl -sX GET -u elastic:${ELASTIC_PASSWORD} 'http://elasticsearch:9200' | grep 'You Know, for Search' || exit 1"]
+      test: ["CMD-SHELL", "curl -sX GET -u elastic:${ELASTIC_PASSWORD:-changeme} 'http://elasticsearch:9200' | grep 'You Know, for Search' || exit 1"]
       interval: 10s
       retries: 5
       start_period: 30s
       timeout: 5s
-
-  elasticsearch-setup:
-    image: alpine:latest
-    container_name: elasticsearch-setup
-    depends_on:
-      elasticsearch:
-        condition: service_healthy
-    environment:
-      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
-      - KIBANA_PASSWORD=${KIBANA_PASSWORD}
-    volumes:
-      - type: bind
-        source: ./config/es-setup.sh
-        target: /es-setup.sh
-    networks:
-      - elk
-    command: ["sh", "/es-setup.sh"]
-    restart: "no"
 
   kibana:
     image: kibana:${STACK_VERSION:-9.0.1}
@@ -56,14 +38,14 @@ services:
      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
      - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=a7a6311933d3503b89bc2dbc0b1234567890abcdef1234567890abcdef123456
      - ELASTICSEARCH_USERNAME=kibana_system
-     - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
+     - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD:-changeme}
+    networks:
+      - elk
     ports:
       - ${KIBANA_PORT:-5601}:5601
     depends_on:
-      elasticsearch-setup:
-        condition: service_completed_successfully
-    networks:
-      - elk
+      elasticsearch:
+        condition: service_healthy
     volumes:
       - type: volume
         source: kibana-data
@@ -73,32 +55,6 @@ services:
       interval: 10s
       retries: 5
       start_period: 30s
-      timeout: 5s
-
-  kibana-setup:
-    image: alpine:latest
-    container_name: kibana-setup
-    environment:
-      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
-      - KIBANA_PASSWORD=${KIBANA_PASSWORD}
-    volumes:
-      - type: bind
-        source: ./config/kb-setup.sh
-        target: /kb-setup.sh
-      - type: bind
-        source: ./tokens
-        target: /tokens     
-    command: ["sh", "/kb-setup.sh"]
-    networks:
-      - elk
-    depends_on:
-      kibana:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "test", "-f", "/tokens/enrollment_tokens.txt"]
-      interval: 10s
-      retries: 5
-      start_period: 60s
       timeout: 5s
 
   elastic-agent:
@@ -114,18 +70,72 @@ services:
         source: ./tokens
         target: /tokens
       - type: bind
-        source: ./config/fleet-startup.sh
-        target: /fleet-startup.sh
-    entrypoint: ["bash", "/fleet-startup.sh"]
+        source: ./config/agent-startup.sh
+        target: /agent-startup.sh
+      - type: volume
+        source: elastic-agent-data
+        target: /usr/share/elastic-agent/state
+    entrypoint: ["bash", "/agent-startup.sh"]
     networks:
       - elk
     ports:
       - "8220:8220"
     depends_on:
-      kibana-setup:
-        condition: service_completed_successfully        
+      kibana:
+        condition: service_healthy    
     healthcheck:
       test: ["CMD-SHELL", "/usr/share/elastic-agent/elastic-agent status --output yaml | grep -q 'state: 2' || exit 1"]
+      interval: 10s
+      retries: 5
+      start_period: 60s
+      timeout: 5s
+
+  # Setup profiles
+  elasticsearch-setup:
+    image: alpine:latest
+    container_name: elasticsearch-setup
+    profiles:
+      - setup
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-changeme}
+      - KIBANA_PASSWORD=${KIBANA_PASSWORD:-changeme}
+    networks:
+      - elk
+    volumes:
+      - type: bind
+        source: ./config/es-setup.sh
+        target: /es-setup.sh
+    command: ["sh", "/es-setup.sh"]
+    restart: "no"
+
+  kibana-setup:
+    image: alpine:latest
+    container_name: kibana-setup
+    profiles:
+      - setup
+    environment:
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-changeme}
+      - KIBANA_PASSWORD=${KIBANA_PASSWORD:-changeme}
+    volumes:
+      - type: bind
+        source: ./config/kb-setup.sh
+        target: /kb-setup.sh
+      - type: bind
+        source: ./tokens
+        target: /tokens     
+    command: ["sh", "/kb-setup.sh"]
+    networks:
+      - elk
+    depends_on:
+      elasticsearch-setup:
+        condition: service_completed_successfully
+      kibana:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tokens/enrollment_tokens.txt"]
       interval: 10s
       retries: 5
       start_period: 60s
@@ -136,8 +146,11 @@ volumes:
     name: elasticsearch-data
   kibana-data:
     name: kibana-data
+  elastic-agent-data:
+    name: elastic-agent-data
+
 
 networks:
   elk:
     driver: bridge
-    name: elk
+    external: true
