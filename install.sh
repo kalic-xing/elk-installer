@@ -312,7 +312,7 @@ execute_docker_compose() {
     fi
     
     info "Starting Elastic Stack deployment..."
-    if ! ${compose_cmd} -f ${COMPOSE_FILE} up -d >/dev/null 2>"${ERROR_LOG}"; then
+    if ! ${compose_cmd} -f ${COMPOSE_FILE} --profile setup up -d >/dev/null 2>"${ERROR_LOG}"; then
         error "Docker Compose deployment failed"
         [ -s "${ERROR_LOG}" ] && error "Docker Compose error: $(cat "${ERROR_LOG}")"
         return 1
