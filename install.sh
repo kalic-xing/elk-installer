@@ -367,7 +367,7 @@ parse_arguments() {
         esac
     done
     
-    info "Configuration: Password=*****, Version=${version}"
+    info "Configuration: Password=*****, Version=${STACK_VERSION}"
 }
 
 ################################################################################
