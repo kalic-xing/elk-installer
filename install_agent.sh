@@ -1,283 +1,556 @@
 #!/bin/bash
 
-################################################################################
-# Elastic Agent Installer Script
+#===============================================================================
+# ELK Stack Agent Installer - Combined Windows/Linux Deployment
 #
-# This script installs the Elastic Agent on a Windows machine via SMB and SSH.
+# Description: Automated deployment of Elastic Agent to Windows and Linux targets
+# Version: 3.0
 #
-# Usage:
-#   sudo ./install-agent.sh -i <Target IP> -u <username> -p <password> -o <operating system>
-#
-# Options:
-#   -i : IP address of the target machine
-#   -u : Username for Windows machine
-#   -p : Password for Windows machine
-#   -o : Operating System type ('win' for Windows, 'lin' for Linux)
-################################################################################
+# Usage: ./install_agent.sh -arch <Windows|Linux> -username <user> -password <pass> -target <ip>
+# Prerequisites: 
+#   - Docker with Elasticsearch running
+#   - Valid enrollment tokens in /opt/tokens/enrollment_tokens.txt
+#   - Network connectivity to target systems
+#   - For Windows: impacket-smbclient, netexec (nxc)
+#   - For Linux: sshpass, ssh, scp
+#===============================================================================
 
-# ANSI color codes for log levels
-COLOR_RESET="\033[0m"
-COLOR_INFO="\033[0;32m"    # Green for INFO
-COLOR_WARN="\033[0;33m"    # Yellow for WARNING
-COLOR_ERROR="\033[0;31m"   # Red for ERROR
+set -euo pipefail
 
-# Variables
-target_ip=""
-username=""
-password=""
-operating_system=""
-installer_dir="/opt/elk-installer"
-downloads="$installer_dir/agent-downloads"
-token_file="$installer_dir/tokens/enrollment_tokens.txt"
+#===============================================================================
+# CONFIGURATION
+#===============================================================================
 
+# Script metadata
+readonly SCRIPT_NAME="$(basename "$0")"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Variables for options
-install_sysmon_only=false # Default value
+# Default configuration
+readonly AGENT_DIR="/opt/elk-installer/agent-downloads"
+readonly SCRIPTS_DIR="/opt/elk-installer/scripts"
+readonly TOKENS_FILE="/opt/elk-installer/tokens/enrollment_tokens.txt"
+readonly LINUX_AGENT_VERSION="8.14.3"
 
-# Logging functions
+# Command line arguments
+TARGET_ARCH=""
+USERNAME=""
+PASSWORD=""
+TARGET_IP=""
+VERBOSE=false
+
+# Runtime variables
+ELASTICSEARCH_VERSION=""
+TUN0_IP=""
+LINUX_TOKEN=""
+WINDOWS_TOKEN=""
+
+#===============================================================================
+# LOGGING FUNCTIONS
+#===============================================================================
+
+get_timestamp() {
+    date '+%Y-%m-%d %H:%M:%S'
+}
+
 log() {
     local level="$1"
-    local color="$2"
-    shift 2
-    echo -e "[${color}${level}${COLOR_RESET}] $(date '+%Y-%m-%d %H:%M:%S') - $*"
+    shift
+    echo "[$(get_timestamp)] [$level] $*" >&2
 }
 
-info() {
-    log "INFO" "${COLOR_INFO}" "$@"
+log_info() {
+    log "INFO" "$@"
 }
 
-warn() {
-    log "WARNING" "${COLOR_WARN}" "$@"
+log_error() {
+    log "ERROR" "$@"
 }
 
-error() {
-    log "ERROR" "${COLOR_ERROR}" "$@" >&2
+log_success() {
+    log "SUCCESS" "$@"
 }
 
-die() {
-    error "$@"
-    exit 1
+log_debug() {
+    [[ "$VERBOSE" == "true" ]] && log "DEBUG" "$@"
 }
 
-# Display usage information
-usage() {
-    echo "Usage: $0 -i <Windows IP> -u <username> -p <password> -o <operating system>"
-    echo "  -i : IP address of the Windows machine"
-    echo "  -u : Username for Windows machine"
-    echo "  -p : Password for Windows machine"
-    echo "  -o : Operating System type ('win' for Windows, 'lin' for Linux)"
-    echo "  --sysmon : Installs sysmon windows machines"
-    exit 1
+#===============================================================================
+# ERROR HANDLING
+#===============================================================================
+
+handle_error() {
+    local exit_code=$?
+    local line_number=$1
+    
+    log_error "Script failed at line $line_number with exit code $exit_code"
+    log_error "Command: ${BASH_COMMAND}"
+    exit "$exit_code"
 }
 
-# Parse command-line options and validate required arguments
-parse_args() {
-    while getopts ":i:u:p:o:-:" opt; do
-        case $opt in
-            i) target_ip="$OPTARG" ;;
-            u) username="$OPTARG" ;;
-            p) password="$OPTARG" ;;
-            o) operating_system="$OPTARG" ;;
-            -)
-                case "$OPTARG" in
-                    sysmon) install_sysmon_only=true ;;  # Set sysmon flag if --sysmon is provided
-                    *) error "Invalid option: --$OPTARG"; usage ;;
-                esac
+trap 'handle_error $LINENO' ERR
+
+#===============================================================================
+# UTILITY FUNCTIONS
+#===============================================================================
+
+show_usage() {
+    cat << EOF
+Usage: $SCRIPT_NAME [OPTIONS]
+
+Deploy Elastic Agent to Windows or Linux targets via remote execution.
+
+Required Arguments:
+  -arch <Windows|Linux>    Target architecture/OS
+  -username <user>         Username for remote authentication
+  -password <pass>         Password for remote authentication  
+  -target <ip>             Target machine IP address
+
+Optional Arguments:
+  -v, --verbose           Enable verbose/debug logging
+  -h, --help             Show this help message
+
+Examples:
+  # Deploy to Windows target
+  $SCRIPT_NAME -arch Windows -username administrator -password 'P@ssw0rd!' -target 192.168.1.100
+
+  # Deploy to Linux target  
+  $SCRIPT_NAME -arch Linux -username root -password 'password123' -target 192.168.1.101
+
+  # With verbose logging
+  $SCRIPT_NAME -arch Linux -username ubuntu -password 'mypass' -target 10.0.0.50 -v
+
+Prerequisites:
+  - Elasticsearch running in Docker
+  - Enrollment tokens in $TOKENS_FILE
+  - Network connectivity to target
+  - For Windows: impacket-smbclient, netexec (nxc)
+  - For Linux: sshpass, ssh, scp
+
+EOF
+}
+
+# Parse command line arguments
+parse_arguments() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -arch)
+                TARGET_ARCH="$2"
+                shift 2
                 ;;
-            \?) error "Invalid option: -$OPTARG"; usage ;;
-            :) error "Option -$OPTARG requires an argument."; usage ;;
+            -username)
+                USERNAME="$2"
+                shift 2
+                ;;
+            -password)
+                PASSWORD="$2"
+                shift 2
+                ;;
+            -target)
+                TARGET_IP="$2"
+                shift 2
+                ;;
+            -v|--verbose)
+                VERBOSE=true
+                shift
+                ;;
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            *)
+                log_error "Unknown argument: $1"
+                show_usage
+                exit 1
+                ;;
         esac
     done
-
-    # Validate required inputs immediately after parsing
-    if [ -z "$target_ip" ] || [ -z "$operating_system" ] || [ -z "$username" ] || [ -z "$password" ]; then
-        error "Missing required inputs."
-        usage
-    fi
 }
 
-# Retrieve VPN IP (tun0 IP)
-get_tun0_ip() {
-    tun0_ip=$(/usr/share/kali-themes/xfce4-panel-genmon-vpnip.sh | awk -F '<txt>' '{print $2}' | awk -F '</txt>' '{print $1}')
-    if [ -z "$tun0_ip" ]; then
-        warn "Could not determine tun0 IP. Ensure VPN is connected."
+#===============================================================================
+# VALIDATION FUNCTIONS
+#===============================================================================
+
+validate_arguments() {
+    log_info "Validating command line arguments..."
+    
+    local validation_errors=0
+    
+    if [[ -z "$TARGET_ARCH" ]]; then
+        log_error "Architecture not specified. Use -arch Windows or -arch Linux"
+        validation_errors=$((validation_errors + 1))
+    elif [[ ! "$TARGET_ARCH" =~ ^(Windows|Linux)$ ]]; then
+        log_error "Invalid architecture: $TARGET_ARCH (must be Windows or Linux)"
+        validation_errors=$((validation_errors + 1))
     fi
-}
-
-# Reusable function to upload files to target Windows machine
-upload_files() {
-    local ip="$1"
-    local files=("${@:2}")
-    local commands_file="$installer_dir/commands_upload.txt"
-
-    # Prepare commands file for uploading files
-    : > "$commands_file"  # Clear existing commands
-    echo "use C$" >> "$commands_file"
-    echo "cd Windows\\Temp" >> "$commands_file"
-    for file in "${files[@]}"; do
-        echo "put $file" >> "$commands_file"
-    done
-
-    # Run the upload command
-    info "Uploading files to $ip..."
-    output=$(impacket-smbclient "$username:$password@$ip" -inputfile "$commands_file" 2>&1)
-    if echo "$output" | grep -iq "error"; then
-        error "File upload failed for $ip: $(echo "$output" | tail -n1)"
-        return 1  # Return with error if upload fails
+    
+    if [[ -z "$USERNAME" ]]; then
+        log_error "Username not provided. Use -username argument"
+        validation_errors=$((validation_errors + 1))
     fi
-}
-
-# function to execute remote commands on Windows
-execute_remote_command() {
-    local ip="$1"
-    local command="$2"
-
-    nxc_output=$(nxc smb "$ip" -u "$username" -p "$password" -X "$command" --verbose 2>&1)
-    if echo "$nxc_output" | grep -iq "successfully"; then
-        info "Command executed successfully on $ip!"
-        return 0
-    else
-        error "Command execution failed for $ip: $(echo "$nxc_output" | tail -n2)"
+    
+    if [[ -z "$PASSWORD" ]]; then
+        log_error "Password not provided. Use -password argument"
+        validation_errors=$((validation_errors + 1))
+    fi
+    
+    if [[ -z "$TARGET_IP" ]]; then
+        log_error "Target IP not provided. Use -target argument"
+        validation_errors=$((validation_errors + 1))
+    elif ! [[ "$TARGET_IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+        log_error "Invalid IP address format: $TARGET_IP"
+        validation_errors=$((validation_errors + 1))
+    fi
+    
+    if [[ $validation_errors -gt 0 ]]; then
+        log_error "Argument validation failed with $validation_errors error(s)"
+        show_usage
         return 1
     fi
-}
-
-# Function to install the Elastic Agent and optionally Sysmon on Windows
-install_on_windows() {
-    # Define URLs for Sysmon and configuration
-    local sysmon_zip_url="https://download.sysinternals.com/files/Sysmon.zip"
-    local sysmon_config_url="https://raw.githubusercontent.com/olafhartong/sysmon-modular/master/sysmonconfig-with-filedelete.xml"
-    local elastic_agent_url="https://artifacts.elastic.co/downloads/beats/elastic-agent/elastic-agent-8.14.3-windows-x86_64.zip"
-
-    # Variables for file locations
-    local elastic_zip="$downloads/elastic-agent-8.14.3-windows-x86_64.zip"
-    local sysmon_zip="$downloads/Sysmon.zip"
-    local sysmon_config="$downloads/sysmonconfig.xml"
-
-    # Download Elastic Agent zip file if it doesn't exist
-    if [ ! -f "$elastic_zip" ]; then
-        info "Downloading Elastic Agent..."
-        curl -sL "$elastic_agent_url" -o "$elastic_zip" || die "Failed to download Elastic Agent"
-    fi
-
-    # Download Sysmon files if --sysmon is set
-    if [ "$install_sysmon_only" = true ]; then
-        if [ ! -f "$sysmon_zip" ]; then
-            info "Downloading Sysmon..."
-            curl -sL "$sysmon_zip_url" -o "$sysmon_zip" || die "Failed to download Sysmon"
-        fi
-        if [ ! -f "$sysmon_config" ]; then
-            info "Downloading Sysmon configuration file..."
-            curl -sL "$sysmon_config_url" -o "$sysmon_config" || die "Failed to download Sysmon configuration file"
-        fi
-    fi
-
-    # Array to hold PIDs for both upload and installation processes
-    declare -a process_pids=()
-
-    files_to_upload=("$elastic_zip")
-    [ "$install_sysmon_only" = true ] && files_to_upload+=("$sysmon_zip" "$sysmon_config")
-
-        # Upload files
-        if upload_files "$target_ip" "${files_to_upload[@]}"; then
-            # Define installation command based on --sysmon option
-            if [ "$install_sysmon_only" = true ]; then
-                info "Installing Elastic Agent and Sysmon..."
-                nxc_command="Add-Content -Path C:\\Windows\\System32\\Drivers\\etc\\hosts -Value '$tun0_ip fleet01'; \
-                    if (\$?) { Expand-Archive C:\\Windows\\Temp\\elastic-agent-8.14.3-windows-x86_64.zip -DestinationPath C:\\Windows\\Temp -Force; \
-                    if (\$?) { C:\\Windows\\Temp\\elastic-agent-8.14.3-windows-x86_64\\elastic-agent.exe install --url=https://fleet01:8220 --enrollment-token='$token' -inf; }; \
-                    if (!(Get-Service -Name Sysmon64 -ErrorAction SilentlyContinue)) { \
-                        Expand-Archive C:\\Windows\\Temp\\Sysmon.zip -DestinationPath C:\\Sysmon -Force; \
-                        C:\\Sysmon\\Sysmon64.exe -accepteula -i C:\\Windows\\Temp\\sysmonconfig.xml; }}"
-
-            else
-                info "Installing Elastic Agent ..."
-                nxc_command="Add-Content -Path C:\\Windows\\System32\\Drivers\\etc\\hosts -Value '$tun0_ip fleet01'; \
-                    if (\$?) { Expand-Archive C:\\Windows\\Temp\\elastic-agent-8.14.3-windows-x86_64.zip -DestinationPath C:\\Windows\\Temp -Force; \
-                    if (\$?) { C:\\Windows\\Temp\\elastic-agent-8.14.3-windows-x86_64\\elastic-agent.exe install --url=https://fleet01:8220 --enrollment-token='$token' -inf; \
-                    C:\Sysmon\Sysmon.exe -c C:\Sysmon\sysmonconfig-export.xml }}"
-            fi
-
-            # Execute the installation command and check the result
-            execute_remote_command "$target_ip" "$nxc_command"
-
-        else
-             error "Failed to upload files to $target_ip"
-        fi
-}
-
-# Define the function for Linux setup
-install_on_linux() {
-    # Variables for Elastic Agent
-    local elastic_agent_url="https://artifacts.elastic.co/downloads/beats/elastic-agent/elastic-agent-8.14.3-amd64.deb"
-    local elastic_agent="$downloads/elastic-agent-8.14.3-amd64.deb"
-    local install_script="$installer_dir/elastic-agent/install.sh"
-
-    # Step 1: Download Elastic Agent .deb package if it doesn't already exist
-    if [ ! -f "$elastic_agent" ]; then
-        info "Downloading Elastic Agent .deb package..."
-        curl -sL "$elastic_agent_url" -o "$elastic_agent" || die "Failed to download Elastic Agent .deb package"
-    fi
-
-    # Step 2: Update the install_script with dynamic values
-    info "Updating install script with paths and password..."
-    declare -A script_vars=(
-        ["^tun0_ip=.*"]="tun0_ip=$tun0_ip"
-        ["^enrollment_key=.*"]="enrollment_key=$token"
-        ["^password=.*"]="password=$password"
-        ["^elastic_agent=.*"]="elastic_agent=/tmp/$(basename "$elastic_agent")"
-    )
     
-    for key in "${!script_vars[@]}"; do
-        sed -i "s|$key|${script_vars[$key]}|" "$install_script"
+    log_success "Arguments validated successfully"
+    return 0
+}
+
+validate_prerequisites() {
+    log_info "Validating system prerequisites..."
+    
+    # Check required commands based on target architecture
+    local required_commands=("curl" "docker")
+    
+    if [[ "$TARGET_ARCH" == "Windows" ]]; then
+        required_commands+=("impacket-smbclient" "nxc")
+    else
+        required_commands+=("sshpass" "ssh" "scp")
+    fi
+    
+    for cmd in "${required_commands[@]}"; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            log_error "Required command not found: $cmd"
+            log_error "Install it with: apt update && apt install -y $cmd"
+            return 1
+        fi
+        log_debug "Found required command: $cmd"
     done
-
-    # Step 3: Upload the Elastic Agent .deb package and the install script to the target Linux machine using SCP
-    info "Uploading Elastic Agent .deb package and install script to $target_ip..."
-    sshpass -p "$password" scp -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no \
-        "$elastic_agent" "$install_script" "$username@$target_ip:/tmp/" >/dev/null 2>&1 || \
-        die "Failed to upload files to target Linux machine $target_ip"
-
-    # Step 4: Execute the script on the remote machine to install and configure the Elastic Agent
-    info "Executing the Elastic Agent install script..."
-    sshpass -p "$password" ssh -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no \
-        "$username@$target_ip" "bash /tmp/$(basename "$install_script")" 2>/dev/null || \
-        die "Failed to run the installation script on the target machine $target_ip"
-
-    info "Elastic Agent setup on Linux completed successfully."
+    
+    # Check if tokens file exists
+    if [[ ! -f "$TOKENS_FILE" ]]; then
+        log_error "Enrollment tokens file not found: $TOKENS_FILE"
+        log_error "Please ensure the tokens file exists with format:"
+        log_error "Linux Policy:token_here"
+        log_error "Windows Policy:token_here"
+        return 1
+    fi
+    
+    # Check if scripts directory exists
+    if [[ ! -d "$SCRIPTS_DIR" ]]; then
+        log_error "Scripts directory not found: $SCRIPTS_DIR"
+        log_error "Please ensure install_agent.sh and install_agent.ps1 exist in $SCRIPTS_DIR"
+        return 1
+    fi
+    
+    log_success "Prerequisites validated successfully"
+    return 0
 }
 
-# Main function to control the script flow
+#===============================================================================
+# DISCOVERY FUNCTIONS
+#===============================================================================
+
+get_elasticsearch_version() {
+    log_info "Discovering Elasticsearch version from Docker..."
+    
+    ELASTICSEARCH_VERSION=$(docker ps --filter "name=elasticsearch" --format "{{.Image}}" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    
+    if [[ -z "$ELASTICSEARCH_VERSION" ]]; then
+        log_error "Could not determine Elasticsearch version"
+        log_error "Ensure Elasticsearch is running in Docker with 'elasticsearch' in the container name"
+        return 1
+    fi
+    
+    log_success "Detected Elasticsearch version: $ELASTICSEARCH_VERSION"
+    return 0
+}
+
+get_tun0_ip() {
+    log_info "Extracting TUN0 IP address..."
+    
+    # Try the specific script first
+    if [[ -f "/usr/share/kali-themes/xfce4-panel-genmon-vpnip.sh" ]]; then
+        TUN0_IP=$(/usr/share/kali-themes/xfce4-panel-genmon-vpnip.sh | awk -F '<txt>' '{print $2}' | awk -F '</txt>' '{print $1}' 2>/dev/null || echo "")
+    fi
+    
+    # Fallback: extract from ip command
+    if [[ -z "$TUN0_IP" ]]; then
+        TUN0_IP=$(ip addr show tun0 2>/dev/null | grep -oP 'inet \K[\d.]+' | head -1 || echo "")
+    fi
+    
+    # Final fallback: extract from ifconfig
+    if [[ -z "$TUN0_IP" ]] && command -v ifconfig >/dev/null 2>&1; then
+        TUN0_IP=$(ifconfig tun0 2>/dev/null | grep -oP 'inet \K[\d.]+' | head -1 || echo "")
+    fi
+    
+    if [[ -z "$TUN0_IP" ]]; then
+        log_error "Could not determine TUN0 IP address"
+        log_error "Ensure VPN connection is active and tun0 interface exists"
+        return 1
+    fi
+    
+    log_success "Detected TUN0 IP: $TUN0_IP"
+    return 0
+}
+
+extract_enrollment_tokens() {
+    log_info "Extracting enrollment tokens..."
+    
+    if [[ ! -r "$TOKENS_FILE" ]]; then
+        log_error "Cannot read tokens file: $TOKENS_FILE"
+        return 1
+    fi
+    
+    # Extract Linux token
+    LINUX_TOKEN=$(grep "^Linux Policy:" "$TOKENS_FILE" | cut -d':' -f2- | tr -d ' ' || echo "")
+    
+    # Extract Windows token  
+    WINDOWS_TOKEN=$(grep "^Windows Policy:" "$TOKENS_FILE" | cut -d':' -f2- | tr -d ' ' || echo "")
+    
+    if [[ -z "$LINUX_TOKEN" ]]; then
+        log_error "Linux enrollment token not found in $TOKENS_FILE"
+        return 1
+    fi
+    
+    if [[ -z "$WINDOWS_TOKEN" ]]; then
+        log_error "Windows enrollment token not found in $TOKENS_FILE"
+        return 1
+    fi
+    
+    log_success "Enrollment tokens extracted successfully"
+    log_debug "Linux token: ${LINUX_TOKEN:0:20}..."
+    log_debug "Windows token: ${WINDOWS_TOKEN:0:20}..."
+    return 0
+}
+
+#===============================================================================
+# DOWNLOAD FUNCTIONS
+#===============================================================================
+
+ensure_agent_directory() {
+    log_info "Ensuring agent downloads directory exists..."
+    
+    if [[ ! -d "$AGENT_DIR" ]]; then
+        log_info "Creating agent directory: $AGENT_DIR"
+        if ! sudo mkdir -p "$AGENT_DIR" 2>/dev/null; then
+            log_error "Failed to create agent directory: $AGENT_DIR"
+            return 1
+        fi
+    fi
+    
+    log_success "Agent directory ready: $AGENT_DIR"
+    return 0
+}
+
+download_windows_components() {
+    log_info "Downloading Windows components..."
+    
+    local agent_file="elastic-agent-${ELASTICSEARCH_VERSION}-windows-x86_64.zip"
+    local sysmon_config="sysmonconfig-with-filedelete.xml"
+    local sysmon_zip="Sysmon.zip"
+    
+    # Download Elastic Agent for Windows if not exists
+    if [[ ! -f "$AGENT_DIR/$agent_file" ]]; then
+        log_info "Downloading Windows Elastic Agent..."
+        if ! curl -sL "https://artifacts.elastic.co/downloads/beats/elastic-agent/$agent_file" -o "$AGENT_DIR/$agent_file"; then
+            log_error "Failed to download Windows Elastic Agent"
+            return 1
+        fi
+        log_success "Downloaded: $agent_file"
+    else
+        log_info "Windows Elastic Agent already exists: $agent_file"
+    fi
+    
+    # Download Sysmon configuration if not exists
+    if [[ ! -f "$AGENT_DIR/$sysmon_config" ]]; then
+        log_info "Downloading Sysmon configuration..."
+        if ! curl -sL "https://raw.githubusercontent.com/olafhartong/sysmon-modular/refs/heads/master/sysmonconfig-with-filedelete.xml" -o "$AGENT_DIR/$sysmon_config"; then
+            log_error "Failed to download Sysmon configuration"
+            return 1
+        fi
+        log_success "Downloaded: $sysmon_config"
+    else
+        log_info "Sysmon configuration already exists: $sysmon_config"
+    fi
+    
+    # Download Sysmon if not exists
+    if [[ ! -f "$AGENT_DIR/$sysmon_zip" ]]; then
+        log_info "Downloading Sysmon..."
+        if ! curl -sL "https://download.sysinternals.com/files/Sysmon.zip" -o "$AGENT_DIR/$sysmon_zip"; then
+            log_error "Failed to download Sysmon"
+            return 1
+        fi
+        log_success "Downloaded: $sysmon_zip"
+    else
+        log_info "Sysmon already exists: $sysmon_zip"
+    fi
+    
+    log_success "All Windows components ready"
+    return 0
+}
+
+download_linux_components() {
+    log_info "Downloading Linux components..."
+    
+    local agent_file="elastic-agent-${LINUX_AGENT_VERSION}-amd64.deb"
+    
+    # Download Elastic Agent for Linux if not exists
+    if [[ ! -f "$AGENT_DIR/$agent_file" ]]; then
+        log_info "Downloading Linux Elastic Agent..."
+        if ! curl -sL "https://artifacts.elastic.co/downloads/beats/elastic-agent/$agent_file" -o "$AGENT_DIR/$agent_file"; then
+            log_error "Failed to download Linux Elastic Agent"
+            return 1
+        fi
+        log_success "Downloaded: $agent_file"
+    else
+        log_info "Linux Elastic Agent already exists: $agent_file"
+    fi
+    
+    log_success "All Linux components ready"
+    return 0
+}
+
+#===============================================================================
+# DEPLOYMENT FUNCTIONS
+#===============================================================================
+
+deploy_windows_agent() {
+    log_info "Deploying Elastic Agent to Windows target: $TARGET_IP"
+    
+    local agent_file="elastic-agent-${ELASTICSEARCH_VERSION}-windows-x86_64.zip"
+    local sysmon_config="sysmonconfig-with-filedelete.xml"
+    local sysmon_zip="Sysmon.zip"
+    local install_script="setup_agent.ps1"
+    
+    # Create upload commands file
+    local upload_commands="/tmp/smb_upload_commands_$$.txt"
+    cat > "$upload_commands" << EOF
+use C$
+cd Windows\\Temp
+put $SCRIPTS_DIR/$install_script
+put $AGENT_DIR/$sysmon_config
+put $AGENT_DIR/$sysmon_zip
+put $AGENT_DIR/$agent_file
+EOF
+    
+    log_info "Uploading files via SMB..."
+    log_debug "Upload commands file: $upload_commands"
+    
+    # Upload files using impacket-smbclient
+    if ! impacket-smbclient "$USERNAME:$PASSWORD@$TARGET_IP" -inputfile "$upload_commands" 2>/dev/null; then
+        log_error "Failed to upload files via SMB"
+        rm -f "$upload_commands"
+        return 1
+    fi
+    
+    rm -f "$upload_commands"
+    log_success "Files uploaded successfully"
+    
+    # Execute installation via netexec
+    log_info "Executing Windows installation..."
+    local ps_command="Import-Module C:\\Windows\\Temp\\$install_script; Install-ElasticAgentAndSysmon -tun0_ip '$TUN0_IP' -files '$sysmon_config,$agent_file,$sysmon_zip' -enrollment_token '$WINDOWS_TOKEN'"
+    
+    log_debug "PowerShell command: $ps_command"
+    
+    if ! nxc smb "$TARGET_IP" -u "$USERNAME" -p "$PASSWORD" -X "$ps_command"; then
+        log_error "Failed to execute Windows installation"
+        return 1
+    fi
+    
+    log_success "Windows Elastic Agent deployment completed"
+    return 0
+}
+
+deploy_linux_agent() {
+    log_info "Deploying Elastic Agent to Linux target: $TARGET_IP"
+    
+    local agent_file="elastic-agent-${LINUX_AGENT_VERSION}-amd64.deb"
+    local install_script="setup_agent.sh"
+    
+    # Upload script and agent package
+    log_info "Uploading files via SCP..."
+    if ! sshpass -p "$PASSWORD" scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o IdentitiesOnly=yes "$SCRIPTS_DIR/$install_script" "$AGENT_DIR/$agent_file" "$USERNAME@$TARGET_IP:/tmp/" 2>/dev/null; then
+        log_error "Failed to upload files via SCP"
+        log_error "Check SSH connectivity and credentials"
+        return 1
+    fi
+    
+    log_success "Files uploaded successfully"
+    
+    # Execute installation via SSH
+    log_info "Executing Linux installation..."
+    local ssh_command="echo '$PASSWORD' | sudo -S bash /tmp/$install_script --package '$agent_file' --token '$LINUX_TOKEN' --ip '$TUN0_IP' --port 8000"
+    
+    log_debug "SSH command: $ssh_command"
+    
+    if ! sshpass -p "$PASSWORD" ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -t "$USERNAME@$TARGET_IP" "$ssh_command"; then
+        log_error "Failed to execute Linux installation"
+        return 1
+    fi
+    
+    log_success "Linux Elastic Agent deployment completed"
+    return 0
+}
+
+#===============================================================================
+# MAIN EXECUTION
+#===============================================================================
+
 main() {
-    parse_args "$@"
-    get_tun0_ip
-
-    # Check if the token file exists
-    if [ ! -f "$token_file" ]; then
-        die "Token file not found at $token_file"
+    log_info "Starting ELK Agent Installer..."
+    log_info "Target Architecture: $TARGET_ARCH"
+    log_info "Target IP: $TARGET_IP"
+    log_info "Username: $USERNAME"
+    
+    # Phase 1: Discovery and Validation
+    log_info "=== PHASE 1: DISCOVERY & VALIDATION ==="
+    validate_arguments || exit 1
+    validate_prerequisites || exit 1
+    get_elasticsearch_version || exit 1
+    get_tun0_ip || exit 1
+    extract_enrollment_tokens || exit 1
+    
+    # Phase 2: Download Components
+    log_info "=== PHASE 2: DOWNLOAD COMPONENTS ==="
+    ensure_agent_directory || exit 1
+    
+    if [[ "$TARGET_ARCH" == "Windows" ]]; then
+        download_windows_components || exit 1
+    else
+        download_linux_components || exit 1
     fi
-
-    # Create the downloads directory to save the downloads
-    if [ ! -d "$downloads" ]; then
-        mkdir -p "$downloads" || { echo "Failed to create directory $downloads"; exit 1; }
+    
+    # Phase 3: Deploy Agent
+    log_info "=== PHASE 3: DEPLOY AGENT ==="
+    
+    if [[ "$TARGET_ARCH" == "Windows" ]]; then
+        deploy_windows_agent || exit 1
+    else
+        deploy_linux_agent || exit 1
     fi
-
-    # Select the appropriate token and function based on the OS
-    case "$operating_system" in
-        win)
-            token=$(grep "Windows Policy" "$token_file" | cut -d ':' -f2)
-            install_on_windows
-            ;;
-        lin)
-            token=$(grep "Linux Policy" "$token_file" | cut -d ':' -f2)
-            install_on_linux
-            ;;
-        *)
-            error "Invalid operating system option. Use 'win' for Windows or 'lin' for Linux."
-            usage
-            ;;
-    esac
+    
+    log_success "ELK Agent deployment completed successfully!"
+    log_info "Check your Fleet management interface to verify agent enrollment"
 }
 
-# Run the main function
-main "$@"
+#===============================================================================
+# SCRIPT ENTRY POINT
+#===============================================================================
+
+# Parse arguments first
+parse_arguments "$@"
+
+# Handle the case where no arguments are provided
+if [[ $# -eq 0 ]]; then
+    show_usage
+    exit 1
+fi
+
+# Run main installation
+main
