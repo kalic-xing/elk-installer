@@ -9,8 +9,8 @@ services:
     networks:
       - elk
     ports:
-      - 9200:9200
-      - 9300:9300
+      - "9200:9200"
+      - "9300:9300"
     volumes:
       - type: volume
         source: elasticsearch-data
@@ -21,7 +21,7 @@ services:
       ES_JAVA_OPTS: -Xms512m -Xmx512m
       ELASTIC_PASSWORD: "${ELASTIC_PASSWORD:?Error: ELASTIC_PASSWORD not set in .env file}"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sX GET -u elastic:${ELASTIC_PASSWORD} 'http://elasticsearch:9200' | grep 'You Know, for Search' || exit 1"]
+      test: ["CMD-SHELL", "curl -sX GET -u 'elastic:${ELASTIC_PASSWORD}' 'http://elasticsearch:9200' | grep 'You Know, for Search' || exit 1"]
       interval: 10s
       retries: 5
       start_period: 30s
