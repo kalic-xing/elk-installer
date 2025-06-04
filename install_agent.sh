@@ -106,8 +106,9 @@ Required Arguments:
   -target <ip>             Target machine IP address
 
 Optional Arguments:
+  -tun0 <ip>              Specify TUN0 IP address (auto-detected if not provided)
   -v, --verbose           Enable verbose/debug logging
-  -h, --help             Show this help message
+  -h, --help              Show this help message
 
 Examples:
   # Deploy to Windows target
@@ -119,6 +120,8 @@ Examples:
   # With verbose logging
   $SCRIPT_NAME -arch Linux -username ubuntu -password 'mypass' -target 10.0.0.50 -v
 
+  # With custom TUN0 IP
+  $SCRIPT_NAME -arch Linux -username ubuntu -password 'mypass' -target 10.0.0.50 -tun0 192.168.1.10
 Prerequisites:
   - Elasticsearch running in Docker
   - Enrollment tokens in $TOKENS_FILE
@@ -147,6 +150,10 @@ parse_arguments() {
                 ;;
             -target)
                 TARGET_IP="$2"
+                shift 2
+                ;;
+            -tun0)
+                TUN0_IP="$2"
                 shift 2
                 ;;
             -v|--verbose)
@@ -272,30 +279,42 @@ get_elasticsearch_version() {
 }
 
 get_tun0_ip() {
-    log_debug "Extracting TUN0 IP address..."
-    
+    # If TUN0_IP was provided via command line argument, validate and use it
+    if [[ -n "$TUN0_IP" ]]; then
+        log_debug "Using provided TUN0 IP: $TUN0_IP"
+
+        # Validate IP format
+        if ! [[ "$TUN0_IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+            log_error "Invalid TUN0 IP address format: $TUN0_IP"
+            return 1
+        fi
+        return 0
+    fi
+
+    log_debug "Auto-detecting TUN0 IP address..."
+
     # Try the specific script first
     if [[ -f "/usr/share/kali-themes/xfce4-panel-genmon-vpnip.sh" ]]; then
         TUN0_IP=$(/usr/share/kali-themes/xfce4-panel-genmon-vpnip.sh 2>/dev/null | awk -F '<txt>' '{print $2}' | awk -F '</txt>' '{print $1}' 2>/dev/null || echo "")
     fi
-    
+
     # Fallback: extract from ip command
     if [[ -z "$TUN0_IP" ]]; then
         TUN0_IP=$(ip addr show tun0 2>/dev/null | grep -oP 'inet \K[\d.]+' | head -1 || echo "")
     fi
-    
+
     # Final fallback: extract from ifconfig
     if [[ -z "$TUN0_IP" ]] && command -v ifconfig >/dev/null 2>&1; then
         TUN0_IP=$(ifconfig tun0 2>/dev/null | grep -oP 'inet \K[\d.]+' | head -1 || echo "")
     fi
-    
+
     if [[ -z "$TUN0_IP" ]]; then
         log_error "Could not determine TUN0 IP address"
-        log_error "Ensure VPN connection is active and tun0 interface exists"
+        log_error "Ensure VPN connection is active and tun0 interface exists, or provide IP with -tun0 argument"
         return 1
     fi
-    
-    log_debug "Detected TUN0 IP: $TUN0_IP"
+
+    log_debug "Auto-detected TUN0 IP: $TUN0_IP"
     return 0
 }
 
@@ -421,7 +440,7 @@ download_linux_components() {
 #===============================================================================
 
 deploy_windows_agent() {
-    log_info "Deploying Elastic Agent to Windows target: $TARGET_IP ...."
+    log_info "Deploying Elastic Agent to Windows target: $TARGET_IP..."
     
     local agent_file="elastic-agent-${ELASTICSEARCH_VERSION}-windows-x86_64.zip"
     local sysmon_config="sysmonconfig-with-filedelete.xml"
@@ -486,7 +505,7 @@ EOF
 }
 
 deploy_linux_agent() {
-    log_info "Deploying Elastic Agent to Linux target: $TARGET_IP ..."
+    log_info "Deploying Elastic Agent to Linux target: $TARGET_IP..."
     
     local agent_file="elastic-agent-${LINUX_AGENT_VERSION}-amd64.deb"
     local install_script="setup_agent.sh"
