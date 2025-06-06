@@ -129,16 +129,6 @@ check_ram() {
     fi
 }
 
-validate_docker_environment() {
-    if ! command -v docker >/dev/null 2>&1; then
-        die "Docker is not installed or not in PATH"
-    fi
-
-    if ! command -v docker compose >/dev/null 2>&1 && ! docker compose version >/dev/null 2>&1; then
-        die "Docker Compose is not installed or not available"
-    fi
-}
-
 check_container_health() {
     local container_name="$1"
     local health_status
@@ -431,7 +421,6 @@ main() {
     check_root
     check_ram
     install_docker_and_netexec
-    validate_docker_environment
     clone_elk
     execute_docker_compose
     validate_all_containers
