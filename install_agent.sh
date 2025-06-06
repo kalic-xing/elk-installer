@@ -562,7 +562,7 @@ main() {
     # Phase 1: Discovery and Validation
     validate_arguments || exit 1
     validate_prerequisites || exit 1
-    ELASTICAGENT_VERSION || exit 1
+    get_elastic_agent_version || exit 1
     get_tun0_ip || exit 1
     extract_enrollment_tokens || exit 1
     
