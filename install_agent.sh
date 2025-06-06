@@ -29,7 +29,6 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly AGENT_DIR="/opt/elk-installer/agent-downloads"
 readonly SCRIPTS_DIR="/opt/elk-installer/scripts"
 readonly TOKENS_FILE="/opt/elk-installer/tokens/enrollment_tokens.txt"
-readonly LINUX_AGENT_VERSION="8.14.3"
 
 # Command line arguments
 TARGET_ARCH=""
@@ -39,7 +38,7 @@ TARGET_IP=""
 VERBOSE=false
 
 # Runtime variables
-ELASTICSEARCH_VERSION=""
+ELASTICAGENT_VERSION=""
 TUN0_IP=""
 LINUX_TOKEN=""
 WINDOWS_TOKEN=""
@@ -263,18 +262,18 @@ validate_prerequisites() {
 # DISCOVERY FUNCTIONS
 #===============================================================================
 
-get_elasticsearch_version() {
+get_elastic_agent_version() {
     log_debug "Discovering Elasticsearch version from Docker..."
     
-    ELASTICSEARCH_VERSION=$(docker ps --filter "name=elasticsearch" --format "{{.Image}}" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    ELASTICAGENT_VERSION=$(docker ps --filter "name=elastic-agent" --format "{{.Image}}" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
     
-    if [[ -z "$ELASTICSEARCH_VERSION" ]]; then
-        log_error "Could not determine Elasticsearch version"
-        log_error "Ensure Elasticsearch is running in Docker with 'elasticsearch' in the container name"
+    if [[ -z "$ELASTICAGENT_VERSION" ]]; then
+        log_error "Could not determine Elastic Agent version"
+        log_error "Ensure Elastic Agent is running in Docker with 'elastic-agent' in the container name"
         return 1
     fi
     
-    log_debug "Detected Elasticsearch version: $ELASTICSEARCH_VERSION"
+    log_debug "Detected Elastic Agent version: $ELASTICAGENT_VERSION"
     return 0
 }
 
@@ -370,7 +369,7 @@ ensure_agent_directory() {
 download_windows_components() {
     log_info "Downloading Windows components..."
     
-    local agent_file="elastic-agent-${ELASTICSEARCH_VERSION}-windows-x86_64.zip"
+    local agent_file="elastic-agent-${ELASTICAGENT_VERSION}-windows-x86_64.zip"
     local sysmon_config="sysmonconfig-with-filedelete.xml"
     local sysmon_zip="Sysmon.zip"
     
@@ -417,7 +416,7 @@ download_windows_components() {
 download_linux_components() {
     log_info "Downloading Linux components..."
     
-    local agent_file="elastic-agent-${LINUX_AGENT_VERSION}-amd64.deb"
+    local agent_file="elastic-agent-${ELASTICAGENT_VERSION}-amd64.deb"
     
     # Download Elastic Agent for Linux if not exists
     if [[ ! -f "$AGENT_DIR/$agent_file" ]]; then
@@ -442,7 +441,7 @@ download_linux_components() {
 deploy_windows_agent() {
     log_info "Deploying Elastic Agent to Windows target: $TARGET_IP..."
     
-    local agent_file="elastic-agent-${ELASTICSEARCH_VERSION}-windows-x86_64.zip"
+    local agent_file="elastic-agent-${ELASTICAGENT_VERSION}-windows-x86_64.zip"
     local sysmon_config="sysmonconfig-with-filedelete.xml"
     local sysmon_zip="Sysmon.zip"
     local install_script="setup_agent.ps1"
@@ -563,7 +562,7 @@ main() {
     # Phase 1: Discovery and Validation
     validate_arguments || exit 1
     validate_prerequisites || exit 1
-    get_elasticsearch_version || exit 1
+    ELASTICAGENT_VERSION || exit 1
     get_tun0_ip || exit 1
     extract_enrollment_tokens || exit 1
     

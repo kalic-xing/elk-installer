@@ -53,7 +53,7 @@ services:
       timeout: 5s
 
   elastic-agent:
-    image: docker.elastic.co/elastic-agent/elastic-agent:${STACK_VERSION:-8.14.1}
+    image: docker.elastic.co/elastic-agent/elastic-agent:${STACK_VERSION:-8.14.3}
     container_name: elastic-agent
     user: root
     mem_limit: 1073741824
