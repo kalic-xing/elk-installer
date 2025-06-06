@@ -285,6 +285,10 @@ clone_elk() {
 
     cd "${ELK_PATH}" || die "Failed to change to ${ELK_PATH}"
 
+    # Create required directories for bind mounts
+    info "Creating required directories..."
+    mkdir -p tokens
+
     info "Creating .env configuration file..."
     cat > .env << EOF
 ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
