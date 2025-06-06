@@ -2,10 +2,7 @@ services:
   elasticsearch:
     container_name: elasticsearch
     image: elasticsearch:${STACK_VERSION:-9.0.1}
-    deploy:
-      resources:
-        limits:
-          memory: 1g
+    mem_limit: 1073741824
     networks:
       - elk
     ports:
@@ -18,7 +15,8 @@ services:
     environment:
       discovery.type: single-node
       xpack.security.enabled: true
-      ES_JAVA_OPTS: -Xms512m -Xmx512m
+      bootstrap.memory_lock: true
+      ES_JAVA_OPTS: -Xms256m -Xmx256m
       ELASTIC_PASSWORD: "${ELASTIC_PASSWORD:?Error: ELASTIC_PASSWORD not set in .env file}"
     healthcheck:
       test: ["CMD-SHELL", "curl -sX GET -u 'elastic:${ELASTIC_PASSWORD}' 'http://elasticsearch:9200' | grep 'You Know, for Search' || exit 1"]
@@ -30,10 +28,7 @@ services:
   kibana:
     image: kibana:${STACK_VERSION:-9.0.1}
     container_name: kibana
-    deploy:
-      resources:
-        limits:
-          memory: 1g
+    mem_limit: 1073741824
     environment:
      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
      XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY: a7a6311933d3503b89bc2dbc0b1234567890abcdef1234567890abcdef123456
@@ -61,10 +56,7 @@ services:
     image: docker.elastic.co/elastic-agent/elastic-agent:${STACK_VERSION:-9.0.1}
     container_name: elastic-agent
     user: root
-    deploy:
-      resources:
-        limits:
-          memory: 1g
+    mem_limit: 1073741824
     volumes:
       - type: bind
         source: ./tokens
