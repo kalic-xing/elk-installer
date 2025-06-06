@@ -337,6 +337,24 @@ execute_docker_compose() {
     return 0
 }
 
+display_deployment_info() {
+    info "Elastic Stack deployment completed successfully. Displaying access information..."
+
+    # Create formatted output with colors
+    local info_color="\033[0;36m"    # Cyan for info sections
+    local value_color="\033[1;37m"   # Bold white for values
+    local reset_color="\033[0m"
+
+    echo
+    echo -e "${info_color}ELK Stack Credentials:${reset_color}"
+    echo -e "    ${info_color}Elastic Username:${reset_color} ${value_color}elastic${reset_color}"
+    echo -e "    ${info_color}Elastic Password:${reset_color} ${value_color}${ELASTIC_PASSWORD}${reset_color}"
+    echo
+    echo
+    echo -e "${info_color}Access the Elastic SIEM at:${reset_color} ${value_color}http://localhost:5601${reset_color}"
+    echo
+}
+
 ################################################################################
 # Argument parsing
 ################################################################################
@@ -387,8 +405,8 @@ main() {
     clone_elk
     execute_docker_compose
     validate_all_containers
-    
-    info "Elastic Stack deployment completed successfully"
+    display_deployment_info
+
 }
 
 # Execute main function
