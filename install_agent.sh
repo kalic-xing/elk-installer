@@ -506,7 +506,7 @@ EOF
 deploy_linux_agent() {
     log_info "Deploying Elastic Agent to Linux target: $TARGET_IP..."
     
-    local agent_file="elastic-agent-${LINUX_AGENT_VERSION}-amd64.deb"
+    local agent_file="elastic-agent-${ELASTICAGENT_VERSION}-amd64.deb"
     local install_script="setup_agent.sh"
     
     # Upload script and agent package
