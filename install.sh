@@ -27,7 +27,7 @@ readonly DOCKER_SOURCE_LIST="/etc/apt/sources.list.d/docker.list"
 
 # Default configuration
 DEFAULT_PASSWORD="lablab"
-DEFAULT_VERSION="9.0.1"
+DEFAULT_VERSION="8.14.1"
 COMPOSE_FILE="${ELK_PATH}/docker-compose.yml"
 
 # Create a Random Kibana Password
