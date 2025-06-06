@@ -17,7 +17,13 @@ readonly SCRIPT_NAME="${0##*/}"
 readonly ERROR_LOG=$(mktemp)
 readonly ELK_PATH="/opt/elk-installer"
 readonly GIT_REPO="https://github.com/kalic-xing/elk-installer.git"
-readonly MIN_RAM_MB=3890
+readonly MIN_RAM_MB=1964
+
+
+# Docker installation configuration
+readonly DOCKER_REPO="https://download.docker.com/linux/debian"
+readonly DOCKER_GPG_KEY="/etc/apt/keyrings/docker.gpg"
+readonly DOCKER_SOURCE_LIST="/etc/apt/sources.list.d/docker.list"
 
 # Default configuration
 DEFAULT_PASSWORD="lablab"
@@ -119,7 +125,7 @@ check_ram() {
     total_ram=$(free -m | awk '/^Mem:/{print $2}')
 
     if [ "${total_ram}" -lt "${MIN_RAM_MB}" ]; then
-        warn "Insufficient RAM: ${total_ram}MB. For optimal SIEM performance, Consider upgrading to atleast 4GB after installation for efficient operation."
+        warn "Insufficient RAM: ${total_ram}MB. For optimal SIEM performance, Consider upgrading to atleast 2GB after installation for efficient operation."
         sleep 3
     fi
 }
@@ -159,12 +165,9 @@ check_container_health() {
 wait_for_container_health() {
     local container_name="$1"
     local attempt=1
-    
-    info "Waiting for ${container_name} to become healthy..."
-    
+
     while [ ${attempt} -le ${MAX_HEALTH_CHECK_ATTEMPTS} ]; do
         if check_container_health "${container_name}"; then
-            info "${container_name} is healthy"
             return 0
         fi
         
@@ -202,33 +205,61 @@ verify_gpg_key() {
 }
 
 setup_docker_repository() {
-    info "Setting up Docker repository..."
-    
+    info "Setting up Docker repository for Kali Linux..."
+
+    # Ensure keyrings directory exists
     mkdir -p /etc/apt/keyrings
 
+    # Remove existing GPG key if it exists to avoid conflicts
+    [ -f "${DOCKER_GPG_KEY}" ] && rm -f "${DOCKER_GPG_KEY}"
+
     info "Adding Docker's official GPG key..."
-    curl -fsSL "${DOCKER_REPO}/gpg" | gpg --dearmor -o "${DOCKER_GPG_KEY}" 2>>"${ERROR_LOG}" || \
+    if ! curl -fsSL "${DOCKER_REPO}/gpg" | gpg --dearmor -o "${DOCKER_GPG_KEY}" 2>>"${ERROR_LOG}"; then
         die "Failed to add Docker GPG key"
+    fi
+
+    # Detect architecture for proper repository configuration
+    local arch
+    arch=$(dpkg --print-architecture)
+
+    # Use bookworm (Debian 12) as it's the current stable base for Kali
+    local debian_codename="bookworm"
 
     if [ ! -f "${DOCKER_SOURCE_LIST}" ] || ! grep -q "${DOCKER_REPO}" "${DOCKER_SOURCE_LIST}"; then
-        info "Configuring Docker repository..."
-        echo "deb [arch=amd64 signed-by=${DOCKER_GPG_KEY}] ${DOCKER_REPO} bookworm stable" | \
+        info "Configuring Docker repository for Kali Linux (${arch} architecture)..."
+        echo "deb [arch=${arch} signed-by=${DOCKER_GPG_KEY}] ${DOCKER_REPO} ${debian_codename} stable" | \
             tee "${DOCKER_SOURCE_LIST}" >/dev/null || \
             die "Failed to add Docker repository"
     else
         info "Docker repository already configured."
     fi
+
+    # Update package list after adding repository
+    info "Updating package list..."
+    apt update >/dev/null 2>>"${ERROR_LOG}" || die "Failed to update package list"
 }
+
+# Function to check if commands exist
+check_commands() {
+    local commands=("docker --version" "docker compose version")
+    for cmd in "${commands[@]}"; do
+        if ! $cmd >/dev/null 2>&1; then
+            return 1  # Command missing
+        fi
+    done
+    return 0  # All commands exist
+}
+
 
 install_docker_and_netexec() {
     info "Checking Docker and Netexec installation..."
 
-    # Check if Docker is installed, and install if necessary
-    if ! command -v docker >/dev/null 2>&1; then
-        info "Installing Docker..."
+     # Install Docker and Docker Compose if any commands are missing
+    if ! check_commands; then
+        info "Installing Docker and Docker Compose..."
         setup_docker_repository
-        apt update >/dev/null && apt install -y docker-ce docker-ce-cli containerd.io >/dev/null 2>>"${ERROR_LOG}" || \
-            die "Docker installation failed"
+        apt install -y docker-ce docker-ce-cli containerd.io >/dev/null 2>>"${ERROR_LOG}" || \
+            die "Docker/Docker Compose installation failed"
     fi
 
     # Ensure Docker service is running
