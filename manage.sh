@@ -152,6 +152,25 @@ change_to_elk_directory() {
 }
 
 ################################################################################
+# Container detection and validation
+################################################################################
+
+check_any_containers_exist() {
+    local compose_cmd
+    compose_cmd=$(get_compose_cmd)
+
+    # Check if any containers from the compose file exist (running or stopped)
+    local container_count
+    container_count=$(${compose_cmd} -f "${COMPOSE_FILE}" ps -a --format "{{.Names}}" 2>/dev/null | wc -l)
+
+    if [ "${container_count}" -eq 0 ]; then
+        return 1  # No containers found
+    fi
+
+    return 0  # Containers exist
+}
+
+################################################################################
 # Container health and status functions
 ################################################################################
 
@@ -287,6 +306,12 @@ stop_services() {
     local compose_cmd
     compose_cmd=$(get_compose_cmd)
 
+    # Check if any containers exist before trying to stop them
+    if ! check_any_containers_exist; then
+        warn "No containers found. Use '${SCRIPT_NAME} start' to deploy the stack."
+        return 0
+    fi
+
     info "Stopping Elastic Stack services..."
 
     if ! ${compose_cmd} -f "${COMPOSE_FILE}" down 2>"${ERROR_LOG}"; then
@@ -310,6 +335,12 @@ show_status() {
 
     info "Checking container status..."
     echo
+
+    # Check if any containers exist first
+    if ! check_any_containers_exist; then
+        warn "No containers found. Use '${SCRIPT_NAME} start' to deploy the stack."
+        return 0
+    fi
 
     # Show main containers
     echo -e "${COLOR_INFO}Main Services:${COLOR_RESET}"
@@ -352,6 +383,12 @@ show_logs() {
     compose_cmd=$(get_compose_cmd)
     local follow_flag=""
 
+    # Check if any containers exist first
+    if ! check_any_containers_exist; then
+        warn "No containers found. Use '${SCRIPT_NAME} start' to deploy the stack."
+        return 0
+    fi
+
     # Check if follow flag is provided
     if [ "${1:-}" = "-f" ] || [ "${1:-}" = "--follow" ]; then
         follow_flag="-f"
@@ -366,6 +403,12 @@ show_logs() {
 check_health() {
     info "Performing health check on all containers..."
     echo
+
+    # Check if any containers exist first
+    if ! check_any_containers_exist; then
+        warn "No containers found. Use '${SCRIPT_NAME} start' to deploy the stack."
+        return 0
+    fi
 
     local all_healthy=true
 
