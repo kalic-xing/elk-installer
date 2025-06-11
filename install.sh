@@ -26,12 +26,12 @@ readonly DOCKER_GPG_KEY="/etc/apt/keyrings/docker.gpg"
 readonly DOCKER_SOURCE_LIST="/etc/apt/sources.list.d/docker.list"
 
 # Default configuration
-DEFAULT_PASSWORD="lablab"
 DEFAULT_VERSION="8.14.3"
 COMPOSE_FILE="${ELK_PATH}/docker-compose.yml"
 
 # Create a Random Kibana Password
 KIBANA_PASSWORD=$(openssl rand -base64 12 | tr -d '+/=' | head -c12)
+ELASTIC_PASSWORD=$(openssl rand -base64 12 | tr -d '+/=' | head -c12)
 
 # Container health check configuration
 readonly HEALTHY_CONTAINERS=("elasticsearch" "kibana" "elastic-agent")
@@ -95,7 +95,7 @@ Usage: ${SCRIPT_NAME} [OPTIONS]
 Deploy Elastic Stack using Docker Compose with health validation.
 
 OPTIONS:
-    --password PASSWORD    Set elastic password (default: ${DEFAULT_PASSWORD})
+    --password PASSWORD    Set custom elastic password
     --version VERSION      Set Elastic Stack version (default: ${DEFAULT_VERSION})
     -h, --help            Show this help message
 
@@ -362,7 +362,6 @@ execute_docker_compose() {
 }
 
 cleanup_setup_containers() {
-    info "Cleaning up setup containers..."
     local compose_cmd
 
     if docker compose version >/dev/null 2>&1; then
@@ -400,7 +399,6 @@ display_deployment_info() {
 ################################################################################
 
 parse_arguments() {
-    ELASTIC_PASSWORD="${DEFAULT_PASSWORD}"
     STACK_VERSION="${DEFAULT_VERSION}"
     
     while [[ $# -gt 0 ]]; do
