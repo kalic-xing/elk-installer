@@ -371,7 +371,7 @@ cleanup_setup_containers() {
     fi
 
     # Remove setup containers
-    ${compose_cmd} -f ${COMPOSE_FILE} rm -f elasticsearch-setup kibana-setup 2>/dev/null || true
+    ${compose_cmd} -f ${COMPOSE_FILE} rm -f elasticsearch-setup kibana-setup >/dev/null 2>&1 || true
 
     info "Setup containers cleaned up successfully"
 }
