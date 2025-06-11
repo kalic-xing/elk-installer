@@ -421,9 +421,6 @@ clean_environment() {
         return 1
     fi
 
-    # Clean up any remaining setup containers
-    cleanup_setup_containers
-
     success "Environment cleaned successfully"
     info "All data has been removed. Next startup will be a fresh installation."
 }
