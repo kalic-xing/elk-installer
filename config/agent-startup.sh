@@ -57,6 +57,27 @@ fi
 echo "✅ Fleet service token extracted successfully"
 echo "📋 Token length: ${#FLEET_SERVICE_TOKEN} characters"
 
+# Remove the fleet-service-token line from the file after extraction
+# This ensures that on subsequent runs (e.g., after volumes are removed),
+# the agent will wait for fresh tokens to be generated instead of using stale ones
+
+if command -v sed >/dev/null 2>&1; then
+    # Use sed to remove the fleet-service-token line in-place
+    sed -i '/^fleet-service-token:/d' "$TOKEN_FILE"
+    echo "✅ Fleet service token removed from file"
+else
+    # Fallback: create temp file and replace (in case sed is not available)
+    temp_file=$(mktemp)
+    grep -v "^fleet-service-token:" "$TOKEN_FILE" > "$temp_file" && mv "$temp_file" "$TOKEN_FILE"
+    echo "✅ Fleet service token removed from file (fallback method)"
+fi
+
+# Verify the token was removed
+if grep -q "fleet-service-token:" "$TOKEN_FILE"; then
+    echo "⚠️  Warning: Fleet service token still present in file"
+else
+    echo "✅ Confirmed: Fleet service token successfully removed from file"
+fi
 
 # Set up environment variables for elastic-agent
 export FLEET_SERVER_ENABLE=true
