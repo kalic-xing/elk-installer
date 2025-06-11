@@ -361,6 +361,22 @@ execute_docker_compose() {
     return 0
 }
 
+cleanup_setup_containers() {
+    info "Cleaning up setup containers..."
+    local compose_cmd
+
+    if docker compose version >/dev/null 2>&1; then
+        compose_cmd="docker compose"
+    else
+        compose_cmd="docker-compose"
+    fi
+
+    # Remove setup containers
+    ${compose_cmd} -f ${COMPOSE_FILE} rm -f elasticsearch-setup kibana-setup 2>/dev/null || true
+
+    info "Setup containers cleaned up successfully"
+}
+
 display_deployment_info() {
     info "Elastic Stack deployment completed successfully. Displaying access information..."
 
@@ -428,6 +444,7 @@ main() {
     clone_elk
     execute_docker_compose
     validate_all_containers
+    cleanup_setup_containers
     display_deployment_info
 
 }
