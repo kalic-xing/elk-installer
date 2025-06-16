@@ -240,15 +240,17 @@ check_commands() {
 }
 
 
-install_docker_and_netexec() {
-    info "Checking Docker and Netexec installation..."
+install_docker() {
+    info "Checking Docker installation..."
 
-     # Install Docker and Docker Compose if any commands are missing
+    # Install Docker and Docker Compose if any commands are missing
     if ! check_commands; then
         info "Installing Docker and Docker Compose..."
         setup_docker_repository
         apt install -y docker-ce docker-ce-cli containerd.io >/dev/null 2>>"${ERROR_LOG}" || \
             die "Docker/Docker Compose installation failed"
+    else
+        return 0
     fi
 
     # Ensure Docker service is running
@@ -256,17 +258,28 @@ install_docker_and_netexec() {
         systemctl enable --now docker || die "Failed to enable Docker service"
     fi
 
-    # Add current user to Docker group if not already a member
-    if ! groups kali | grep -q docker; then
-        usermod -aG docker kali || die "Failed to add kali user to docker group"
-        info "Added kali user to docker group. Please log out and back in for changes to take effect."
+    # Advanced user detection with fallback strategies
+    local actual_user=""
+
+    # Primary detection: SUDO_USER environment variable
+    if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
+        actual_user="${SUDO_USER}"
+    # Secondary detection: Check if running directly as non-root
+    elif [ "$EUID" -ne 0 ]; then
+        actual_user=$(whoami)
+    # Tertiary detection: Parse from process tree
+    elif [ -n "${USER:-}" ] && [ "${USER}" != "root" ]; then
+        actual_user="${USER}"
     fi
 
-    # Check if netexec is installed, and install if necessary
-    if ! command -v nxc >/dev/null 2>&1; then
-        info "netexec not found. Installing netexec..."
-        apt install -y netexec >/dev/null 2>>"${ERROR_LOG}" || \
-            die "netexec installation failed"
+    # Apply docker group membership if valid user detected
+    if [ -n "${actual_user}" ]; then
+        if ! groups "${actual_user}" 2>/dev/null | grep -q docker; then
+            usermod -aG docker "${actual_user}" || die "Failed to add ${actual_user} to docker group"
+            info "Added ${actual_user} to docker group. Please log out and back in for changes to take effect."
+        else
+            info "User ${actual_user} already in docker group"
+        fi
     fi
 }
 
@@ -438,7 +451,7 @@ main() {
 
     check_root
     check_ram
-    install_docker_and_netexec
+    install_docker
     clone_elk
     execute_docker_compose
     validate_all_containers
