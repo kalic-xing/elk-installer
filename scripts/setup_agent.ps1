@@ -137,7 +137,7 @@ function Test-RequiredFiles {
     if ($missingFiles.Count -gt 0) {
         Write-ColorOutput "`nMissing files:" -Color Red
         foreach ($file in $missingFiles) {
-            Write-ColorOutput "  • $file" -Color Red
+            Write-ColorOutput "  ï¿½ $file" -Color Red
         }
         
         Write-ColorOutput "`nFiles currently in upload directory:" -Color Yellow
@@ -145,7 +145,7 @@ function Test-RequiredFiles {
         if ($existingFiles) {
             foreach ($file in $existingFiles) {
                 $size = Get-FileSizeString -Bytes $file.Length
-                Write-ColorOutput "  • $($file.Name) ($size)" -Color Yellow
+                Write-ColorOutput "  ï¿½ $($file.Name) ($size)" -Color Yellow
             }
         }
         else {
@@ -340,38 +340,19 @@ function Install-SysmonService {
         Write-ColorOutput "Found Sysmon at: $sysmonExe" -Color Cyan
         Write-ColorOutput "Using config: $sysmonConfig" -Color Cyan
         
-        if ($isServiceRunning) {
-            # Update existing Sysmon configuration
-            $updateArgs = @(
-                "-c"
-                $sysmonConfig
-            )
-            
-            Write-ColorOutput "Executing Sysmon configuration update..." -Color Yellow
-            Write-ColorOutput "Command: $sysmonExe $($updateArgs -join ' ')" -Color Cyan
-            
-            $process = Start-Process -FilePath $sysmonExe -ArgumentList $updateArgs -Wait -PassThru -NoNewWindow
-            
-            if ($process.ExitCode -eq 0) {
-                Write-ColorOutput "? Sysmon configuration updated successfully" -Color Green
-                $script:InstallationStats.ServicesInstalled++
-            }
-            else {
-                throw "Sysmon configuration update failed with exit code: $($process.ExitCode)"
-            }
-        } else {
+        if (-not $isServiceRunning) {
             # Install Sysmon
             $installArgs = @(
                 "-accepteula"
                 "-i"
                 $sysmonConfig
             )
-            
+
             Write-ColorOutput "Executing Sysmon installation..." -Color Yellow
             Write-ColorOutput "Command: $sysmonExe $($installArgs -join ' ')" -Color Cyan
-            
+
             $process = Start-Process -FilePath $sysmonExe -ArgumentList $installArgs -Wait -PassThru -NoNewWindow
-            
+
             if ($process.ExitCode -eq 0) {
                 Write-ColorOutput "? Sysmon installed successfully" -Color Green
                 $script:InstallationStats.ServicesInstalled++
@@ -379,6 +360,8 @@ function Install-SysmonService {
             else {
                 throw "Sysmon installation failed with exit code: $($process.ExitCode)"
             }
+        } else {
+            Write-ColorOutput "Sysmon is already running. No action taken." -Color Yellow
         }
     }
     catch {
@@ -405,7 +388,7 @@ function Show-InstallationSummary {
     if ($script:InstallationStats.Errors.Count -gt 0) {
         Write-ColorOutput "`nErrors Encountered:" -Color Red
         foreach ($error in $script:InstallationStats.Errors) {
-            Write-ColorOutput "  • $error" -Color Red
+            Write-ColorOutput "  ï¿½ $error" -Color Red
         }
     }
     
