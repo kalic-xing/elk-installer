@@ -4,7 +4,7 @@ set -euo pipefail
 
 ################################################################################
 # Elastic Stack Docker Compose Deployment Script
-# 
+#
 # This script deploys Elastic Stack using Docker Compose with configurable
 # password and version parameters, then validates container health status.
 ################################################################################
@@ -18,6 +18,7 @@ readonly ERROR_LOG=$(mktemp)
 readonly ELK_PATH="/opt/elk-installer"
 readonly GIT_REPO="https://github.com/kalic-xing/elk-installer.git"
 readonly MIN_RAM_MB=3890
+readonly MIN_DISK_GB=10
 
 
 # Docker installation configuration
@@ -129,12 +130,28 @@ check_ram() {
     fi
 }
 
+check_disk_space() {
+    if ! command -v df >/dev/null 2>&1; then
+        die "'df' command not found. Unable to check disk space."
+    fi
+
+    local available_gb
+    # Get available space in GB for root filesystem
+    available_gb=$(df -BG / | awk 'NR==2 {gsub(/G/, "", $4); print $4}')
+
+    if [ "${available_gb}" -lt "${MIN_DISK_GB}" ]; then
+        die "Insufficient disk space: ${available_gb}GB available. ELK Stack requires at least ${MIN_DISK_GB}GB free space for Docker images and data."
+    fi
+
+    info "Disk space check passed: ${available_gb}GB available"
+}
+
 check_container_health() {
     local container_name="$1"
     local health_status
-    
+
     health_status=$(docker inspect --format='{{.State.Health.Status}}' "${container_name}" 2>/dev/null || echo "unknown")
-    
+
     case "${health_status}" in
         "healthy")
             return 0
@@ -159,12 +176,12 @@ wait_for_container_health() {
         if check_container_health "${container_name}"; then
             return 0
         fi
-        
+
         if [ ${attempt} -eq ${MAX_HEALTH_CHECK_ATTEMPTS} ]; then
             error "Timeout waiting for ${container_name} to become healthy after $((MAX_HEALTH_CHECK_ATTEMPTS * HEALTH_CHECK_INTERVAL)) seconds"
             return 1
         fi
-        
+
         sleep ${HEALTH_CHECK_INTERVAL}
         ((attempt++))
     done
@@ -178,17 +195,17 @@ verify_gpg_key() {
     local key_url="$1"
     local temp_key
     temp_key=$(mktemp)
-    
+
     if ! curl -fsSL "${key_url}" -o "${temp_key}"; then
         rm -f "${temp_key}"
         return 1
     fi
-    
+
     if ! gpg --quiet --dry-run "${temp_key}" >/dev/null 2>&1; then
         rm -f "${temp_key}"
         return 1
     fi
-    
+
     rm -f "${temp_key}"
     return 0
 }
@@ -314,38 +331,38 @@ EOF
 
 validate_all_containers() {
     local failed_containers=()
-    
+
     info "Validating container health status..."
-    
+
     for container in "${HEALTHY_CONTAINERS[@]}"; do
         if ! wait_for_container_health "${container}"; then
             failed_containers+=("${container}")
         fi
     done
-    
+
     if [ ${#failed_containers[@]} -gt 0 ]; then
         error "The following containers failed health checks: ${failed_containers[*]}"
         return 1
     fi
-    
+
     info "All containers are healthy and running successfully"
     return 0
 }
 
 execute_docker_compose() {
     local compose_cmd
-    
+
     # Determine docker compose command (newer docker compose vs docker-compose)
     if docker compose version >/dev/null 2>&1; then
         compose_cmd="docker compose"
     else
         compose_cmd="docker-compose"
     fi
-    
+
     if [ ! -f "${COMPOSE_FILE}" ]; then
         die "Docker Compose file '${COMPOSE_FILE}' not found in current directory"
     fi
-    
+
     # Attempt to pull Docker images with a retry mechanism
     info "Pulling the Images..."
     if ! ${compose_cmd} -f ${COMPOSE_FILE} pull >/dev/null 2>>"${ERROR_LOG}"; then
@@ -353,7 +370,7 @@ execute_docker_compose() {
         sleep 10  # Optional delay before retry
         ${compose_cmd} -f ${COMPOSE_FILE} pull >/dev/null 2>>"${ERROR_LOG}" || die "Failed to pull Docker images after retry"
     fi
-    
+
     # Create the elk network if it doesn't exist
     if ! docker network ls --format "{{.Name}}" | grep -q "^elk$"; then
         if ! docker network create elk >/dev/null 2>"${ERROR_LOG}"; then
@@ -369,7 +386,7 @@ execute_docker_compose() {
         [ -s "${ERROR_LOG}" ] && error "Docker Compose error: $(cat "${ERROR_LOG}")"
         return 1
     fi
-    
+
     info "Docker Compose deployment completed successfully"
     return 0
 }
@@ -413,7 +430,7 @@ display_deployment_info() {
 
 parse_arguments() {
     STACK_VERSION="${DEFAULT_VERSION}"
-    
+
     while [[ $# -gt 0 ]]; do
         case $1 in
             --password)
@@ -435,7 +452,7 @@ parse_arguments() {
                 ;;
         esac
     done
-    
+
     info "Configuration: Password=*****, Version=${STACK_VERSION}"
 }
 
@@ -451,6 +468,7 @@ main() {
 
     check_root
     check_ram
+    check_disk_space
     install_docker
     clone_elk
     execute_docker_compose
