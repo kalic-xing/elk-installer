@@ -15,6 +15,8 @@ set -euo pipefail
 
 readonly SCRIPT_NAME="${0##*/}"
 readonly ERROR_LOG=$(mktemp)
+readonly RESOLV_CONF="/etc/resolv.conf"
+RESOLV_BACKUP=""  # Stores original resolv.conf content if temporarily patched for DNS fallback
 readonly ELK_PATH="/opt/elk-installer"
 readonly GIT_REPO="https://github.com/kalic-xing/elk-installer.git"
 readonly MIN_RAM_MB=3890
@@ -75,6 +77,10 @@ die() {
 
 cleanup() {
     local exit_code=$?
+    # Restore /etc/resolv.conf if it was temporarily patched for DNS fallback
+    if [ -n "${RESOLV_BACKUP}" ]; then
+        echo "${RESOLV_BACKUP}" > "${RESOLV_CONF}"
+    fi
     rm -f "${ERROR_LOG}"
     if [ ${exit_code} -ne 0 ]; then
         error "Script failed with exit code ${exit_code}"
@@ -363,12 +369,29 @@ execute_docker_compose() {
         die "Docker Compose file '${COMPOSE_FILE}' not found in current directory"
     fi
 
-    # Attempt to pull Docker images with a retry mechanism
+    # Attempt to pull Docker images with DNS-aware retry
+    # Docker's Go resolver reads /etc/resolv.conf directly (bypassing nsswitch.conf),
+    # so DHCP-provided DNS that works for host tools may still fail inside the daemon.
+    # This is common in VM/cloud environments and on fresh installs.
     info "Pulling the Images..."
     if ! ${compose_cmd} -f ${COMPOSE_FILE} pull >/dev/null 2>>"${ERROR_LOG}"; then
-        warn "Initial Docker pull failed, retrying once more..."
-        sleep 10  # Optional delay before retry
-        ${compose_cmd} -f ${COMPOSE_FILE} pull >/dev/null 2>>"${ERROR_LOG}" || die "Failed to pull Docker images after retry"
+        if grep -qE "no such host|lookup .* on .*:[0-9]+: |dial tcp.*lookup" "${ERROR_LOG}" 2>/dev/null; then
+            warn "DNS resolution failure detected. Temporarily adding fallback DNS (8.8.8.8) to resolve registry hostnames..."
+            RESOLV_BACKUP=$(cat "${RESOLV_CONF}")
+            printf 'nameserver 8.8.8.8\n%s\n' "${RESOLV_BACKUP}" > "${RESOLV_CONF}"
+            systemctl restart docker
+            info "Docker daemon restarted to apply DNS changes..."
+            if ! ${compose_cmd} -f ${COMPOSE_FILE} pull >/dev/null 2>>"${ERROR_LOG}"; then
+                die "Failed to pull Docker images. Ensure the host has internet access to docker.elastic.co and registry-1.docker.io"
+            fi
+            echo "${RESOLV_BACKUP}" > "${RESOLV_CONF}"
+            RESOLV_BACKUP=""
+            info "DNS configuration restored"
+        else
+            warn "Initial Docker pull failed, retrying once more..."
+            sleep 10
+            ${compose_cmd} -f ${COMPOSE_FILE} pull >/dev/null 2>>"${ERROR_LOG}" || die "Failed to pull Docker images after retry"
+        fi
     fi
 
     # Create the elk network if it doesn't exist
